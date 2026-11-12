@@ -1,16 +1,86 @@
-# React + Vite
+# DiskMotion — Disk Scheduling Algorithm Visualizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**DiskMotion** adalah platform pembelajaran interaktif berbasis web yang dirancang untuk memvisualisasikan cara kerja algoritma penjadwalan disk (_Disk Scheduling Algorithms_) pada sistem operasi. Aplikasi ini dibuat untuk memenuhi tugas akhir mata kuliah **Sistem Operasi**, dengan tujuan membantu mahasiswa maupun pengguna umum memahami pergerakan _read/write head_ secara visual, terstruktur, dan menyenangkan.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Fitur Utama
 
-## React Compiler
+- **Interactive Disk Scheduling Visualizer:** Simulasi grafik pergerakan _disk head_ secara visual dan dinamis berdasarkan skenario yang dimasukkan.
+- **Custom Input Parameter:** Pengguna dapat mengatur sendiri posisi awal _head_, jumlah total _track_ (silinder), serta daftar antrean _request_ I/O.
+- **Dukungan 4 Algoritma Utama:**
+  - **FCFS** (_First-Come, First-Served_)
+  - **SSTF** (_Shortest Seek Time First_)
+  - **SCAN** (_Elevator Algorithm_)
+  - **C-SCAN** (_Circular SCAN_)
+- **Step-by-Step Execution Tracking:** Pelacakan urutan perpindahan _head_ langkah demi langkah lengkap dengan perhitungan total _seek time_ / jarak perpindahan silinder.
+- **Algorithm Comparison:** Ringkasan dan perbandingan performa seluruh algoritma pada dataset antrean yang sama untuk melihat algoritma mana yang paling efisien.
+- **Interactive Mini-Game:** Permainan edukatif untuk menguji dan melatih pemahaman konsep penjadwalan disk sekaligus sebagai sarana hiburan interaktif.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## Tech Stack & Library
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Frontend Framework:** React
+- **Build Tool:** Vite
+- **Bahasa Pemrograman:** JavaScript (ES6+), HTML5, CSS3
+- **Routing:** `react-router-dom`
+
+---
+
+## Prasyarat Instalasi
+
+Sebelum menjalankan proyek ini di komputer lokal, pastikan kamu sudah menginstal:
+
+- [Node.js](https://nodejs.org/) (disarankan versi 18 LTS atau lebih baru)
+- `npm` (sudah otomatis terinstal bersama Node.js)
+
+---
+
+## Cara Instalasi
+
+Ikuti langkah-langkah berikut untuk mengunduh dan menjalankan **DiskMotion** di komputer lokalmu:
+
+1. **Clone repositori ini:**
+
+   ```bash
+   git clone [https://github.com/Vinn02/DiskMotion.git](https://github.com/Vinn02/DiskMotion.git)
+
+   ```
+
+2. **Masuk ke direktori DiskMotion**
+
+   ```bash
+   cd DiskMotion
+
+   ```
+
+3. **Install seluruh Dependensi**
+
+   ```bash
+   npm install
+
+   ```
+
+4. **Jalankan server**
+
+   ```bash
+   npm run dev
+
+   ```
+
+5. **Buka aplikasi di browser**
+   buka tautan local yang muncul di terminal (umumnya http://localhost:5173)
+
+---
+
+## Anggota Kelompok
+
+**Nama Lengkap NPM Username GitHub**
+
+- Kevin Pratama Putra Hamdani (257006111003) Vinn02
+- Salman Alfarisy Isnurdian (257006111031) salmann29
+- Tisya Natasya Harviana (257006111035) tisyanatasyah
+- Muhammad Yusuf Iskandar (257006111054) suffaja
+- Muhammad Rafi Abdullah (257006111055) Rafiabdullah
+- Nathanael Firla Putra Lumbantobing (257006111075) Nathan07222
