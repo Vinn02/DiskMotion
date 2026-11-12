@@ -76,11 +76,11 @@ Ikuti langkah-langkah berikut untuk mengunduh dan menjalankan **DiskMotion** di 
 
 ## Anggota Kelompok
 
-**Nama Lengkap NPM Username GitHub**
+_Format: Nama Lengkap (NPM) Username GitHub_
 
-- Kevin Pratama Putra Hamdani (257006111003) Vinn02
-- Salman Alfarisy Isnurdian (257006111031) salmann29
-- Tisya Natasya Harviana (257006111035) tisyanatasyah
-- Muhammad Yusuf Iskandar (257006111054) suffaja
-- Muhammad Rafi Abdullah (257006111055) Rafiabdullah
-- Nathanael Firla Putra Lumbantobing (257006111075) Nathan07222
+- **Kevin Pratama Putra Hamdani (257006111003) Vinn02**
+- **Salman Alfarisy Isnurdian (257006111031) salmann29**
+- **Tisya Natasya Harviana (257006111035) tisyanatasyah**
+- **Muhammad Yusuf Iskandar (257006111054) suffaja**
+- **Muhammad Rafi Abdullah (257006111055) Rafiabdullah**
+- **Nathanael Firla Putra Lumbantobing (257006111075) Nathan07222**
