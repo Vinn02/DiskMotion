@@ -1,321 +1,947 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import {
+  ArrowLeft,
+  Play,
+  Pause,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  Trophy,
+  Target,
+  Zap,
+  Flame,
+  Crosshair,
+  Shield,
+  Cpu,
+  HardDrive,
+} from "lucide-react";
+import {
+  ALG,
+  DESC,
+  MAX_QUEUE,
+  DEFAULT_SETTINGS,
+  newState,
+  update,
+} from "../utils/game/engine";
+import { draw } from "../utils/game/renderer";
+import { createAudio } from "../utils/game/audio";
+import {
+  loadAchievements,
+  saveAchievements,
+  resetAchievements,
+} from "../utils/game/achievements";
+import "./MiniGame.css";
 
-const ALG = ["", "FCFS", "SSTF", "SCAN", "C-SCAN"];
-
-const DESC = [
-  "",
-  "FCFS: Melayani sesuai urutan masuk. Adil & sederhana, tapi boros pergerakan head saat beban tinggi.",
-  "SSTF: Bergerak ke request terdekat. Sangat cepat membersihkan antrean terpusat, namun request di track jauh berisiko starvation.",
-  "SCAN: Menyapu satu arah seperti lift, lalu berbalik arah saat track di depan kosong. Mencegah starvation.",
-  "C-SCAN: Menyapu hanya ke satu arah tetap (menuju track tertinggi), lalu melompat instan ke track 0. Menjaga waktu tunggu tetap seragam.",
-];
-
-const MAX_QUEUE = 30;
-const SPEEDS = [1, 1.5, 2];
-
-const DEFAULT_SETTINGS = {
-  mode: "endless",
-  N: "200",
-  rate: "0.7",
-  pmin: "5",
-  pmax: "10",
-  svcT: "0.25",
+const MODE_BRIEFINGS = {
+  endless: {
+    title: "Mode Endless Escalation",
+    desc: "Intensitas request meningkat bertahap seiring waktu berjalan.",
+    action:
+      "Mulai dengan SSTF saat antrean padat, lalu pindah ke SCAN/C-SCAN saat pinggiran mulai menumpuk.",
+  },
+  burst: {
+    title: "Mode Burst Wave",
+    desc: "Setiap 8 detik terjadi lonjakan 5–7 request secara mendadak.",
+    action:
+      "Gunakan SCAN atau C-SCAN untuk menyapu gelombang antrean secara teratur tanpa starvation.",
+  },
+  far: {
+    title: "Mode Far-Track Trap",
+    desc: "85% request muncul di track bawah (0–20%) dan 15% di ujung atas (>88%).",
+    action:
+      "Hindari memakai SSTF terlalu lama! Pindah ke SCAN/C-SCAN untuk menyelamatkan track jauh.",
+  },
 };
 
-const HUD = {
-  hp: 100, score: 0, mult: 1, thm: 0, aw: "0.0",
-  qn: 0, served: 0, starved: 0, best: 0, alert: false,
+const ACHIEVEMENT_ICONS = {
+  target: Target,
+  zap: Zap,
+  flame: Flame,
+  crosshair: Crosshair,
+  shield: Shield,
+  trophy: Trophy,
+  cpu: Cpu,
+  "hard-drive": HardDrive,
 };
 
-function MiniGame() {
-  const [algo, setAlgo] = useState(1);
-  const [speed, setSpeed] = useState(1);
+function renderAchievementIcon(iconKey) {
+  const IconComp = ACHIEVEMENT_ICONS[iconKey] || Trophy;
+  return <IconComp className="h-4 w-4 text-[#ec008c]" />;
+}
+
+export default function MiniGame({ isDarkMode = false }) {
+  const canvasRef = useRef(null);
+  const centerZoneRef = useRef(null);
+  const stateRef = useRef(null);
+  const audioRef = useRef(null);
+  const algoRef = useRef(2); // Default: SSTF
+  const speedRef = useRef(1);
+  const darkRef = useRef(isDarkMode);
+  const toastTimerRef = useRef(null);
+
+  const [selectedAlgo, setSelectedAlgo] = useState(2);
+  const [speedMul, setSpeedMul] = useState(1);
   const [muted, setMuted] = useState(false);
-  const [paused, setPaused] = useState(false);
-  const [phase, setPhase] = useState("intro");
-  const [form, setForm] = useState(DEFAULT_SETTINGS);
 
-  const over = null;
+  const [draftSettings, setDraftSettings] = useState(DEFAULT_SETTINGS);
+  const [appliedSettings, setAppliedSettings] = useState(DEFAULT_SETTINGS);
 
-  const hud = HUD;
+  const [achievements, setAchievements] = useState(() => loadAchievements());
+  const [toastAch, setToastAch] = useState(null);
 
-  const startGame = () => {
-    setPaused(false);
-    setPhase("playing");
-  };
-
-  const togglePause = () => {
-    if (phase !== "playing") return;
-    setPaused((p) => !p);
-  };
-
-  const toggleMute = () => {
-    setMuted((m) => !m);
-  };
-
-  const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [hud, setHud] = useState({
+    score: 0,
+    mult: 1,
+    health: 100,
+    thm: 0,
+    served: 0,
+    starved: 0,
+    queueLen: 0,
+    avgWait: 0,
+    head: 100,
+    level: 1,
+    running: false,
+    paused: false,
+    over: false,
+    overReason: "",
+    alert: false,
+    streak: 0,
+    maxStreak: 0,
+    elapsed: 0,
+  });
 
   useEffect(() => {
-    const onKey = (e) => {
-      const tag = e.target.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (["1", "2", "3", "4"].includes(e.key)) {
-        e.preventDefault();
-        setAlgo(+e.key);
+    darkRef.current = isDarkMode;
+  }, [isDarkMode]);
+
+  useEffect(() => {
+    algoRef.current = selectedAlgo;
+  }, [selectedAlgo]);
+
+  useEffect(() => {
+    speedRef.current = speedMul;
+  }, [speedMul]);
+
+  // Main Engine, Audio & Canvas Animation Loop (inisialisasi ref dilakukan di dalam effect)
+  useEffect(() => {
+    if (stateRef.current == null) {
+      stateRef.current = newState(DEFAULT_SETTINGS);
+    }
+    if (audioRef.current == null) {
+      audioRef.current = createAudio(() => stateRef.current, false);
+    }
+
+    let rafId = null;
+    let lastTime = performance.now();
+    let hudAccumulator = 0;
+
+    const triggerToast = (ach) => {
+      setToastAch(ach);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setToastAch(null);
+      }, 3400);
+    };
+
+    const evaluateAchievements = (S) => {
+      const level = Math.min(6, 1 + Math.floor(S.t / 22));
+      const checks = {
+        first_blood: S.served >= 1,
+        combo_5: S.streak >= 5 || S.maxStreak >= 5,
+        combo_12: S.streak >= 12 || S.maxStreak >= 12,
+        zero_seek: S.zeroSeekCount >= 1,
+        vip_saver: S.vipRescued >= 1,
+        score_5000: S.score >= 5000,
+        level_4: level >= 4,
+        served_30: S.served >= 30,
+      };
+
+      setAchievements((prev) => {
+        let changed = false;
+        let newlyUnlocked = null;
+
+        const next = prev.map((item) => {
+          if (!item.unlocked && checks[item.id]) {
+            changed = true;
+            newlyUnlocked = {
+              ...item,
+              unlocked: true,
+              unlockedAt: Date.now(),
+            };
+            return newlyUnlocked;
+          }
+          return item;
+        });
+
+        if (changed) {
+          saveAchievements(next);
+          if (newlyUnlocked) {
+            triggerToast(newlyUnlocked);
+            audioRef.current?.beep(980, 0.14);
+          }
+          return next;
+        }
+        return prev;
+      });
+    };
+
+    const syncHud = (S) => {
+      const level = Math.min(6, 1 + Math.floor(S.t / 22));
+      setHud({
+        score: S.score,
+        mult: S.mult,
+        health: Math.round(S.health),
+        thm: Math.round(S.thm),
+        served: S.served,
+        starved: S.starved,
+        queueLen: S.reqs.length,
+        avgWait: S.served > 0 ? S.wait / S.served : 0,
+        head: Math.round(S.head),
+        level,
+        running: S.running,
+        paused: S.paused,
+        over: S.over,
+        overReason: S.overReason,
+        alert: S.alert,
+        streak: S.streak,
+        maxStreak: S.maxStreak,
+        elapsed: Math.floor(S.t),
+      });
+    };
+
+    const tick = (now) => {
+      const rawDt = Math.min(0.05, (now - lastTime) / 1000);
+      lastTime = now;
+
+      const S = stateRef.current;
+      const canvas = canvasRef.current;
+
+      if (S && canvas) {
+        if (S.running && !S.paused && !S.over) {
+          update(S, rawDt, algoRef.current, speedRef.current, audioRef.current);
+          evaluateAchievements(S);
+        }
+
+        const parent = canvas.parentElement;
+        if (parent) {
+          const rect = parent.getBoundingClientRect();
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const targetW = Math.max(1, Math.floor(rect.width * dpr));
+          const targetH = Math.max(1, Math.floor(rect.height * dpr));
+
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+          }
+
+          let safeZone = null;
+          if (centerZoneRef.current) {
+            const cz = centerZoneRef.current.getBoundingClientRect();
+            safeZone = {
+              left: cz.left - rect.left,
+              right: cz.right - rect.left,
+            };
+          }
+
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            draw(ctx, S, {
+              W: rect.width,
+              H: rect.height,
+              dark: darkRef.current,
+              algo: algoRef.current,
+              safeZone,
+            });
+            ctx.restore();
+          }
+        }
+
+        hudAccumulator += rawDt;
+        if (hudAccumulator >= 0.08 || S.over) {
+          hudAccumulator = 0;
+          syncHud(S);
+        }
       }
-      if (e.code === "Space") {
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      audioRef.current?.dispose();
+      audioRef.current = null;
+    };
+  }, []);
+
+  const handleStartGame = () => {
+    audioRef.current?.unlock();
+    const fresh = newState(appliedSettings);
+    fresh.running = true;
+    stateRef.current = fresh;
+    setHud((prev) => ({
+      ...prev,
+      score: 0,
+      mult: 1,
+      health: 100,
+      thm: 0,
+      served: 0,
+      starved: 0,
+      queueLen: 0,
+      avgWait: 0,
+      head: Math.round(fresh.head),
+      level: 1,
+      running: true,
+      paused: false,
+      over: false,
+      overReason: "",
+      alert: false,
+      streak: 0,
+      maxStreak: 0,
+      elapsed: 0,
+    }));
+  };
+
+  const handleTogglePause = () => {
+    const S = stateRef.current;
+    if (!S || !S.running || S.over) return;
+    audioRef.current?.unlock();
+    S.paused = !S.paused;
+    setHud((prev) => ({ ...prev, paused: S.paused }));
+  };
+
+  const handleToggleMute = () => {
+    audioRef.current?.unlock();
+    setMuted((prev) => {
+      const next = !prev;
+      audioRef.current?.setMuted(next);
+      return next;
+    });
+  };
+
+  const handleApplySettings = (e) => {
+    e.preventDefault();
+    setAppliedSettings(draftSettings);
+    const fresh = newState(draftSettings);
+    stateRef.current = fresh;
+    setHud((prev) => ({
+      ...prev,
+      score: 0,
+      mult: 1,
+      health: 100,
+      thm: 0,
+      served: 0,
+      starved: 0,
+      queueLen: 0,
+      avgWait: 0,
+      head: Math.round(fresh.head),
+      level: 1,
+      running: false,
+      paused: false,
+      over: false,
+      overReason: "",
+      alert: false,
+    }));
+  };
+
+  // Keyboard Shortcuts: 1-4 Algorithm, Space Pause, R Restart, M Mute
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+
+      if (e.key === "1") setSelectedAlgo(1);
+      else if (e.key === "2") setSelectedAlgo(2);
+      else if (e.key === "3") setSelectedAlgo(3);
+      else if (e.key === "4") setSelectedAlgo(4);
+      else if (e.code === "Space") {
         e.preventDefault();
-        if (tag === "BUTTON") e.target.blur();
-        setPaused((p) => (phase === "playing" ? !p : p));
+        const S = stateRef.current;
+        if (!S || !S.running || S.over) {
+          audioRef.current?.unlock();
+          const fresh = newState(appliedSettings);
+          fresh.running = true;
+          stateRef.current = fresh;
+          setHud((prev) => ({
+            ...prev,
+            score: 0,
+            mult: 1,
+            health: 100,
+            thm: 0,
+            served: 0,
+            starved: 0,
+            queueLen: 0,
+            avgWait: 0,
+            head: Math.round(fresh.head),
+            level: 1,
+            running: true,
+            paused: false,
+            over: false,
+            overReason: "",
+            alert: false,
+            streak: 0,
+            maxStreak: 0,
+            elapsed: 0,
+          }));
+        } else {
+          audioRef.current?.unlock();
+          S.paused = !S.paused;
+          setHud((prev) => ({ ...prev, paused: S.paused }));
+        }
+      } else if (e.key === "r" || e.key === "R") {
+        audioRef.current?.unlock();
+        const fresh = newState(appliedSettings);
+        fresh.running = true;
+        stateRef.current = fresh;
+        setHud((prev) => ({
+          ...prev,
+          score: 0,
+          mult: 1,
+          health: 100,
+          thm: 0,
+          served: 0,
+          starved: 0,
+          queueLen: 0,
+          avgWait: 0,
+          head: Math.round(fresh.head),
+          level: 1,
+          running: true,
+          paused: false,
+          over: false,
+          overReason: "",
+          alert: false,
+          streak: 0,
+          maxStreak: 0,
+          elapsed: 0,
+        }));
+      } else if (e.key === "m" || e.key === "M") {
+        audioRef.current?.unlock();
+        setMuted((prev) => {
+          const next = !prev;
+          audioRef.current?.setMuted(next);
+          return next;
+        });
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [phase]);
 
-  const hpColor = hud.hp > 60 ? "#4ade80" : hud.hp > 30 ? "#facc15" : "#f87171";
-  const qnColor = hud.qn >= 24 ? "#f87171" : hud.qn >= 18 ? "#facc15" : undefined;
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [appliedSettings]);
+
+  const unlockedCount = achievements.filter((a) => a.unlocked).length;
+  const isLocked = hud.running && !hud.over;
+  const activeBrief =
+    MODE_BRIEFINGS[draftSettings.mode] || MODE_BRIEFINGS.endless;
+
+  const hpBarColor =
+    hud.health > 50 ? "#10b981" : hud.health > 25 ? "#f59e0b" : "#ef4444";
 
   return (
-    <div className="dtc-page">
-      <div className="dtc-head">
-        <Link to="/" className="dtc-btn dtc-back" aria-label="Kembali ke halaman utama">
-          &lt;
-        </Link>
-        <div>
-          <h2 className="dtc-title">Disk Traffic Controller</h2>
-          <p className="dtc-sub">
-            Jadilah kernel OS: pilih algoritma disk scheduling yang tepat sebelum antrean I/O meluap.
-          </p>
-        </div>
+    <div
+      className="dtc-fullscreen"
+      data-dtc-theme={isDarkMode ? "dark" : "light"}
+    >
+      {/* FULL-SCREEN CANVAS STAGE */}
+      <div className="dtc-bg-stage">
+        <canvas ref={canvasRef} />
       </div>
 
-      <div className="dtc-layout">
-        <section className="dtc-panel dtc-box" aria-label="Area permainan">
-          {hud.alert && phase === "playing" && (
-            <div className="dtc-starvation-alert dtc-bl" role="alert">
-              ⚠ STARVATION ALERT: request &lt; 2 detik!
-            </div>
-          )}
-
-          <div className="dtc-stage">
-            <canvas aria-label="Visualisasi disk head dan antrean request" />
-
-            {phase !== "playing" && (
-              <div className="dtc-ov dtc-modal-backdrop">
-                <div className="dtc-modal">
-                  {phase === "over" && over ? (
-                    <>
-                      <h2 className="dtc-modal-title">GAME OVER</h2>
-                      <div className="dtc-modal-body">
-                        <p className="dtc-bad dtc-reason">{over.reason}</p>
-                        <div className="dtc-over-grid">
-                          <span className="dtc-mut">Skor Akhir</span>
-                          <b>{over.score}{over.best && " 🏆 Rekor baru!"}</b>
-                          <span className="dtc-mut">Request Dilayani</span>
-                          <b>{over.served}</b>
-                          <span className="dtc-mut">Starved (Timeout)</span>
-                          <b className="dtc-bad">{over.starved}</b>
-                          <span className="dtc-mut">Total Head Movement</span>
-                          <b>{over.thm} track</b>
-                          <span className="dtc-mut">Rata-rata Latensi</span>
-                          <b>{over.avg}s</b>
-                          <span className="dtc-mut">Waktu Bertahan</span>
-                          <b>{over.time}s</b>
-                        </div>
-                      </div>
-                      <button type="button" className="dtc-btn dtc-btn-primary dtc-modal-btn" onClick={startGame}>
-                        Main Lagi 🔄
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <h2 className="dtc-modal-title">DISK TRAFFIC CONTROLLER</h2>
-                      <div className="dtc-modal-body">
-                        <p className="dtc-intro-p">
-                          Kamu bertindak sebagai kernel Sistem Operasi. Request I/O berdatangan secara
-                          real-time dan disk head melayani track sesuai algoritma aktif.
-                        </p>
-                        <ul className="dtc-list">
-                          <li>Ganti algoritma saat berjalan dengan tombol <b>1, 2, 3, 4</b>.</li>
-                          <li>
-                            Request bergerak menuju garis head (hijau → kuning → merah). Sampai garis
-                            sebelum dilayani = <b className="dtc-bad">Timeout (-10 HP)</b>.
-                          </li>
-                          <li>
-                            Layanan berturut-turut akan melipatgandakan skor (hingga{" "}
-                            <b className="dtc-pink">x5 Multiplier</b>).
-                          </li>
-                          <li>
-                            <b>Medkit</b> (kotak bertanda +): Ambil untuk memulihkan{" "}
-                            <b className="dtc-ok">+12 HP</b>!
-                          </li>
-                          <li>Health 0% atau antrean meluap (≥ {MAX_QUEUE}) = Game Over.</li>
-                        </ul>
-                      </div>
-                      <button type="button" className="dtc-btn dtc-btn-primary dtc-modal-btn" onClick={startGame}>
-                        Mulai Bermain 🚀
-                      </button>
-                    </>
-                  )}
+      {/* FLOATING 3-COLUMN HUD */}
+      <div className="dtc-hud-grid">
+        {/* LEFT COLUMN: Brand, Telemetry & Legend */}
+        <aside className="dtc-col">
+          {/* Brand Header Card */}
+          <div className="dtc-panel dtc-brand-card">
+            <div className="dtc-row dtc-row-between">
+              <div className="dtc-row">
+                <Link
+                  to="/"
+                  title="Kembali ke Beranda"
+                  className="dtc-btn dtc-back"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+                <div className="dtc-brand-text">
+                  <h1 className="dtc-title">Disk Traffic Controller</h1>
+                  <p className="dtc-sub">
+                    Kendalikan algoritma penjadwalan disk secara real-time.
+                  </p>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
-          <div className="dtc-legend" aria-hidden="true">
-            <span><i className="dtc-dot" style={{ background: "#4ade80" }} />Aman</span>
-            <span><i className="dtc-dot" style={{ background: "#facc15" }} />Waspada</span>
-            <span><i className="dtc-dot" style={{ background: "#f87171" }} />Kritis</span>
-            <span>
-              <i className="dtc-dot dtc-sq" style={{ background: "#fff", borderColor: "#4ade80" }} />
-              Medkit +12 HP
-            </span>
-            <span className="dtc-legend-keys">
-              <kbd>1</kbd>–<kbd>4</kbd> algoritma · <kbd>Spasi</kbd> pause
-            </span>
-          </div>
-        </section>
-
-        <aside className="dtc-side">
+          {/* System Health & Score Telemetry */}
           <div className="dtc-panel dtc-card">
             <div className="dtc-row dtc-row-between">
-              <span className="dtc-lbl">Disk Health</span>
-              <b className="dtc-hp-val">{hud.hp}%</b>
+              <span className="dtc-lbl">System Integrity</span>
+              <span
+                className={`dtc-hp-val ${
+                  hud.health > 50
+                    ? "dtc-ok"
+                    : hud.health > 25
+                      ? "dtc-warn"
+                      : "dtc-bad"
+                }`}
+              >
+                {hud.health}%
+              </span>
             </div>
             <div className="dtc-hpbar">
-              <div style={{ width: hud.hp + "%", background: hpColor }} />
+              <div
+                style={{
+                  width: `${hud.health}%`,
+                  background: hpBarColor,
+                }}
+              />
             </div>
 
             <div className="dtc-grid dtc-grid-2">
               <div className="dtc-stat-box">
                 <span className="dtc-lbl">Score</span>
-                <b className="dtc-big dtc-neon">{hud.score}</b>
+                <b className="dtc-big dtc-neon">{hud.score.toLocaleString()}</b>
               </div>
               <div className="dtc-stat-box">
                 <span className="dtc-lbl">Multiplier</span>
-                <b className="dtc-big dtc-mult">x{hud.mult}</b>
+                <b className="dtc-big dtc-mult">{hud.mult}x</b>
               </div>
             </div>
 
             <div className="dtc-grid dtc-grid-3">
               <div className="dtc-stat-box dtc-sm">
-                <span className="dtc-lbl">Queue</span>
-                <b style={{ color: qnColor }}>{hud.qn}/{MAX_QUEUE}</b>
-              </div>
-              <div className="dtc-stat-box dtc-sm">
                 <span className="dtc-lbl">Served</span>
                 <b className="dtc-ok">{hud.served}</b>
               </div>
               <div className="dtc-stat-box dtc-sm">
-                <span className="dtc-lbl">Starved</span>
+                <span className="dtc-lbl">Timeout</span>
                 <b className="dtc-bad">{hud.starved}</b>
+              </div>
+              <div className="dtc-stat-box dtc-sm">
+                <span className="dtc-lbl">Queue</span>
+                <b className={hud.queueLen >= 22 ? "dtc-bad" : ""}>
+                  {hud.queueLen}/{MAX_QUEUE}
+                </b>
               </div>
               <div className="dtc-stat-box dtc-sm">
                 <span className="dtc-lbl">THM</span>
                 <b>{hud.thm}</b>
               </div>
               <div className="dtc-stat-box dtc-sm">
-                <span className="dtc-lbl">Avg Wait</span>
-                <b>{hud.aw}s</b>
+                <span className="dtc-lbl">Head Pos</span>
+                <b>T{hud.head}</b>
               </div>
               <div className="dtc-stat-box dtc-sm">
-                <span className="dtc-lbl">Best</span>
-                <b className="dtc-warn">{hud.best}</b>
+                <span className="dtc-lbl">Level</span>
+                <b className="dtc-pink">LVL {hud.level}</b>
               </div>
             </div>
           </div>
 
+          {/* Visual Legend & Hotkeys */}
+          <div className="dtc-panel dtc-card">
+            <span className="dtc-lbl">Indikator &amp; Shortcut</span>
+            <div className="dtc-legend-items">
+              <span>
+                <i className="dtc-dot" style={{ background: "#4ade80" }} />
+                Aman (&gt;50% TTL)
+              </span>
+              <span>
+                <i className="dtc-dot" style={{ background: "#facc15" }} />
+                Waspada (25–50%)
+              </span>
+              <span>
+                <i className="dtc-dot" style={{ background: "#f87171" }} />
+                Kritis (&lt;25% TTL)
+              </span>
+              <span>
+                <i
+                  className="dtc-dot dtc-sq"
+                  style={{ background: "#ffffff", borderColor: "#4ade80" }}
+                />
+                Repair Kit (+12 HP)
+              </span>
+            </div>
+
+            <div className="dtc-legend-keys">
+              <span>
+                <kbd>1</kbd>–<kbd>4</kbd> Algoritma
+              </span>
+              <span>
+                <kbd>Space</kbd> Jeda
+              </span>
+              <span>
+                <kbd>R</kbd> Ulang
+              </span>
+              <span>
+                <kbd>M</kbd> Audio
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        {/* CENTER PLAYFIELD ZONE (Canvas Transparent + Overlays) */}
+        <section ref={centerZoneRef} className="dtc-center-zone">
+          {/* Starvation Alert Banner */}
+          {hud.alert && hud.running && !hud.paused && !hud.over && (
+            <div className="dtc-starvation-alert dtc-bl">
+              ⚠ STARVATION WARNING: Request hampir timeout! Segera sapu jalur!
+            </div>
+          )}
+
+          {/* Achievement Unlock Toast */}
+          {toastAch && (
+            <div
+              className="dtc-ach-toast"
+              style={{ top: hud.alert ? "2.8rem" : "0.5rem" }}
+            >
+              <span className="dtc-ach-toast-icon">
+                {renderAchievementIcon(toastAch.icon)}
+              </span>
+              <div className="dtc-ach-toast-text">
+                <span className="dtc-ach-toast-tag">ACHIEVEMENT UNLOCKED</span>
+                <b>{toastAch.title}</b>
+              </div>
+            </div>
+          )}
+
+          {/* Intro / Game Over Modal */}
+          {(!hud.running || hud.over) && (
+            <div className="dtc-modal-wrap">
+              <div className="dtc-modal">
+                {!hud.over ? (
+                  <>
+                    <h2 className="dtc-modal-title">Disk Traffic Controller</h2>
+                    <div className="dtc-modal-body">
+                      <p className="dtc-intro-p">
+                        Kamu adalah <b>Disk I/O Scheduler</b>. Ganti algoritma
+                        penjadwalan secara dinamis untuk melayani seluruh
+                        request sebelum batas waktunya habis!
+                      </p>
+                      <ul className="dtc-list">
+                        <li>
+                          Gunakan tombol <b>1–4</b> untuk berpindah antara{" "}
+                          <b>FCFS, SSTF, SCAN,</b> dan <b>C-SCAN</b>.
+                        </li>
+                        <li>
+                          <b>SSTF</b> sangat cepat untuk jarak dekat, tetapi
+                          rawan membuat request di ujung mengalami{" "}
+                          <b>starvation</b>.
+                        </li>
+                        <li>
+                          Ambil kotak <b>Repair Kit (+)</b> untuk memulihkan{" "}
+                          <b>+12% System Integrity</b>.
+                        </li>
+                        <li>
+                          Permainan berakhir jika Integrity mencapai <b>0%</b>{" "}
+                          atau antrean mencapai <b>{MAX_QUEUE} request</b>.
+                        </li>
+                      </ul>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartGame}
+                      className="dtc-btn dtc-btn-primary dtc-modal-btn"
+                    >
+                      Mulai Simulasi Game
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="dtc-modal-title">SYSTEM HALTED</h2>
+                    <div className="dtc-modal-body">
+                      <p className="dtc-reason dtc-bad">{hud.overReason}</p>
+                      <div className="dtc-over-grid">
+                        <div className="dtc-stat-box">
+                          <span className="dtc-lbl">Final Score</span>
+                          <b className="dtc-pink">
+                            {hud.score.toLocaleString()}
+                          </b>
+                        </div>
+                        <div className="dtc-stat-box">
+                          <span className="dtc-lbl">Requests Served</span>
+                          <b className="dtc-ok">{hud.served}</b>
+                        </div>
+                        <div className="dtc-stat-box">
+                          <span className="dtc-lbl">Total Head Movement</span>
+                          <b>{hud.thm} cyl</b>
+                        </div>
+                        <div className="dtc-stat-box">
+                          <span className="dtc-lbl">Max Streak</span>
+                          <b>{hud.maxStreak}x</b>
+                        </div>
+                      </div>
+
+                      {unlockedCount > 0 && (
+                        <div className="dtc-over-ach">
+                          <span className="dtc-lbl">
+                            Unlocked Badges ({unlockedCount}/
+                            {achievements.length})
+                          </span>
+                          <div className="dtc-over-ach-list">
+                            {achievements
+                              .filter((a) => a.unlocked)
+                              .map((a) => (
+                                <span key={a.id} className="dtc-over-ach-pill">
+                                  ★ {a.title}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleStartGame}
+                      className="dtc-btn dtc-btn-primary dtc-modal-btn"
+                    >
+                      Main Lagi
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* RIGHT COLUMN: Algorithm Switcher, Playback, Settings & Achievements */}
+        <aside className="dtc-col">
+          {/* Active Algorithm Switcher */}
           <div className="dtc-panel dtc-card">
             <div className="dtc-row dtc-row-between">
-              <span className="dtc-lbl">Algoritma Disk</span>
+              <span className="dtc-lbl">Scheduler Algorithm</span>
               <span className="dtc-hint">Hotkey 1–4</span>
             </div>
+
             <div className="dtc-algos">
-              {[1, 2, 3, 4].map((a) => (
+              {[1, 2, 3, 4].map((idx) => (
                 <button
-                  key={a}
+                  key={idx}
                   type="button"
-                  className={"dtc-ab" + (algo === a ? " on" : "")}
-                  onClick={() => setAlgo(a)}
+                  onClick={() => setSelectedAlgo(idx)}
+                  className={`dtc-ab ${selectedAlgo === idx ? "on" : ""}`}
                 >
-                  <b>{a}</b>
-                  {ALG[a]}
+                  <b>{idx}</b>
+                  <span>{ALG[idx]}</span>
                 </button>
               ))}
             </div>
-            <p className="dtc-algo-desc" aria-live="polite">{DESC[algo]}</p>
-          </div>
 
-          <div className="dtc-panel dtc-card">
-            <div className="dtc-row">
-              <button type="button" className="dtc-bt dtc-grow" onClick={togglePause}>
-                {paused ? "▶ Resume (Spasi)" : "⏸ Pause (Spasi)"}
-              </button>
-              <button type="button" className="dtc-bt" title="Mulai ulang" onClick={startGame}>
-                ↻ Restart
-              </button>
-              <button type="button" className="dtc-bt" title="Nyalakan / matikan musik" onClick={toggleMute}>
-                {muted ? "🔇" : "🔊"} Musik
-              </button>
-            </div>
-            <div className="dtc-row dtc-row-between dtc-speed">
-              <span className="dtc-lbl">Kecepatan</span>
+            <p className="dtc-algo-desc">{DESC[selectedAlgo]}</p>
+
+            {/* Playback & Speed Controls */}
+            <div className="dtc-speed">
               <div className="dtc-row dtc-tight">
-                {SPEEDS.map((s) => (
+                <button
+                  type="button"
+                  onClick={
+                    !hud.running || hud.over
+                      ? handleStartGame
+                      : handleTogglePause
+                  }
+                  className="dtc-bt dtc-grow inline-flex items-center justify-center gap-1.5"
+                >
+                  {!hud.running || hud.over ? (
+                    <>
+                      <Play className="h-3.5 w-3.5" /> Start
+                    </>
+                  ) : hud.paused ? (
+                    <>
+                      <Play className="h-3.5 w-3.5" /> Resume
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-3.5 w-3.5" /> Pause
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleStartGame}
+                  title="Restart"
+                  className="dtc-bt inline-flex items-center justify-center"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleToggleMute}
+                  title={muted ? "Unmute" : "Mute"}
+                  className="dtc-bt inline-flex items-center justify-center"
+                >
+                  {muted ? (
+                    <VolumeX className="h-3.5 w-3.5 text-rose-400" />
+                  ) : (
+                    <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                </button>
+              </div>
+
+              <div className="dtc-row dtc-tight mt-2">
+                <span className="dtc-lbl mr-1">Speed:</span>
+                {[0.75, 1, 1.5, 2].map((sp) => (
                   <button
-                    key={s}
+                    key={sp}
                     type="button"
-                    className={"dtc-bt" + (speed === s ? " on" : "")}
-                    onClick={() => setSpeed(s)}
+                    onClick={() => setSpeedMul(sp)}
+                    className={`dtc-bt dtc-grow ${speedMul === sp ? "on" : ""}`}
                   >
-                    {s}x
+                    {sp}x
                   </button>
                 ))}
               </div>
             </div>
           </div>
 
+          {/* Scenario & Workload Settings Accordion */}
           <details className="dtc-panel dtc-set">
             <summary>
-              <span>⚙ Pengaturan Simulasi</span>
-              <i aria-hidden="true">▾</i>
+              <span>Scenario &amp; Parameters</span>
+              <i>▼</i>
             </summary>
-            <div className="dtc-set-body">
+            <form onSubmit={handleApplySettings} className="dtc-set-body">
+              {isLocked && (
+                <div className="dtc-lock-notice">
+                  Parameter terkunci saat sesi berlangsung. Klik &ldquo;Terapkan
+                  &amp; Reset&rdquo; untuk memulai ulang dengan pengaturan baru.
+                </div>
+              )}
+
               <label className="dtc-field">
-                <span className="dtc-lbl">Mode</span>
-                <select className="dtc-in" value={form.mode} onChange={setField("mode")}>
-                  <option value="endless">Endless Survival</option>
-                  <option value="burst">Challenge: Heavy Burst Workload</option>
-                  <option value="far">Challenge: Far Track Isolation</option>
+                <span className="dtc-lbl">Skenario Beban Kerja</span>
+                <select
+                  value={draftSettings.mode}
+                  onChange={(e) =>
+                    setDraftSettings((s) => ({ ...s, mode: e.target.value }))
+                  }
+                  className="dtc-in"
+                >
+                  <option value="endless">Endless Escalation</option>
+                  <option value="burst">Burst Wave (Lonjakan)</option>
+                  <option value="far">Far-Track Trap (Starvation Test)</option>
                 </select>
               </label>
+
+              <div className="dtc-mode-brief">
+                <div className="dtc-mode-brief-head">{activeBrief.title}</div>
+                <p className="dtc-mode-brief-desc">{activeBrief.desc}</p>
+                <p className="dtc-mode-brief-act">
+                  <b>Strategi:</b> {activeBrief.action}
+                </p>
+              </div>
+
               <div className="dtc-grid dtc-grid-2">
                 <label className="dtc-field">
-                  <span className="dtc-lbl">Total Track</span>
-                  <input className="dtc-in" type="number" min="50" max="500" value={form.N} onChange={setField("N")} />
+                  <span className="dtc-lbl">Total Track (50–500)</span>
+                  <input
+                    type="number"
+                    min="50"
+                    max="500"
+                    disabled={isLocked}
+                    value={draftSettings.N}
+                    onChange={(e) =>
+                      setDraftSettings((s) => ({ ...s, N: e.target.value }))
+                    }
+                    className="dtc-in"
+                  />
                 </label>
+
                 <label className="dtc-field">
-                  <span className="dtc-lbl">Request/detik</span>
-                  <input className="dtc-in" type="number" step="0.1" min="0.2" max="5" value={form.rate} onChange={setField("rate")} />
+                  <span className="dtc-lbl">Arrival Rate (/s)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.2"
+                    max="5"
+                    disabled={isLocked}
+                    value={draftSettings.rate}
+                    onChange={(e) =>
+                      setDraftSettings((s) => ({ ...s, rate: e.target.value }))
+                    }
+                    className="dtc-in"
+                  />
                 </label>
+
                 <label className="dtc-field">
-                  <span className="dtc-lbl">Patience min (s)</span>
-                  <input className="dtc-in" type="number" min="3" value={form.pmin} onChange={setField("pmin")} />
+                  <span className="dtc-lbl">Min TTL (detik)</span>
+                  <input
+                    type="number"
+                    min="3"
+                    max="30"
+                    disabled={isLocked}
+                    value={draftSettings.pmin}
+                    onChange={(e) =>
+                      setDraftSettings((s) => ({ ...s, pmin: e.target.value }))
+                    }
+                    className="dtc-in"
+                  />
                 </label>
+
                 <label className="dtc-field">
-                  <span className="dtc-lbl">Patience max (s)</span>
-                  <input className="dtc-in" type="number" min="4" value={form.pmax} onChange={setField("pmax")} />
-                </label>
-                <label className="dtc-field dtc-span-2">
-                  <span className="dtc-lbl">Service time/request (s)</span>
-                  <input className="dtc-in" type="number" step="0.05" min="0" max="2" value={form.svcT} onChange={setField("svcT")} />
+                  <span className="dtc-lbl">Max TTL (detik)</span>
+                  <input
+                    type="number"
+                    min="4"
+                    max="40"
+                    disabled={isLocked}
+                    value={draftSettings.pmax}
+                    onChange={(e) =>
+                      setDraftSettings((s) => ({ ...s, pmax: e.target.value }))
+                    }
+                    className="dtc-in"
+                  />
                 </label>
               </div>
-              <p className="dtc-hint dtc-set-note">
-                Berlaku saat Start/Restart. Antrean ≥ {MAX_QUEUE} = Disk Crash.
-              </p>
+
+              <button
+                type="submit"
+                className="dtc-btn dtc-btn-primary dtc-set-apply"
+              >
+                Terapkan &amp; Reset Sesi
+              </button>
+            </form>
+          </details>
+
+          {/* Achievements Accordion */}
+          <details className="dtc-panel dtc-set">
+            <summary>
+              <span>
+                Achievements ({unlockedCount}/{achievements.length})
+              </span>
+              <i>▼</i>
+            </summary>
+            <div className="dtc-set-body">
+              <div className="dtc-ach-list">
+                {achievements.map((ach) => (
+                  <div
+                    key={ach.id}
+                    className={`dtc-ach-item ${ach.unlocked ? "unlocked" : ""}`}
+                  >
+                    <span className="dtc-ach-icon">
+                      {renderAchievementIcon(ach.icon)}
+                    </span>
+                    <div className="dtc-ach-info">
+                      <b>{ach.title}</b>
+                      <p>{ach.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {unlockedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAchievements(resetAchievements())}
+                  className="dtc-bt mt-2.5 w-full text-center text-[11px] text-rose-400"
+                >
+                  Reset Progress Achievement
+                </button>
+              )}
             </div>
           </details>
         </aside>
@@ -323,5 +949,3 @@ function MiniGame() {
     </div>
   );
 }
-
-export default MiniGame;

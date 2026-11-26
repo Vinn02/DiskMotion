@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import dmLogoImg from '../assets/dm-logo.png';
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,29 +11,37 @@ import {
   Tooltip,
   Legend,
   Filler,
-} from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
+} from "chart.js";
+import { Line, Bar } from "react-chartjs-2";
 import {
   Play,
   Pause,
   SkipBack,
   SkipForward,
-  RotateCcw,
-  Sun,
-  Home,
-  LayoutGrid,
-  Clock,
-  SlidersHorizontal,
-  Compass,
-  LineChart as LineChartIcon,
   Trophy,
   AlertCircle,
-  HelpCircle,
-  CheckCircle2,
-  HardDrive
-} from 'lucide-react';
+  Sparkles,
+  ArrowRight,
+  Flag,
+  BarChart3,
+} from "lucide-react";
+import { compareAllAlgorithms } from "../utils/diskAlgorithms";
+import {
+  VALID_ALGOS,
+  generateRandomPreset,
+  parseRequestQueue,
+  validateSimulationInput,
+} from "../constants/diskConfig";
+import {
+  buildLineChartData,
+  buildLineChartOptions,
+  buildBarChartData,
+  buildBarChartOptions,
+} from "../utils/chartConfig";
+import AmbientPageBackdrop, {
+  CARD_SURFACE_CLASSES,
+} from "../components/AmbientPageBackdrop";
 
-// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -43,447 +51,130 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
 );
 
-/**
- * Descriptions and characteristics for Disk Scheduling Algorithms
- */
-const ALGORITHM_DESCRIPTIONS = {
-  FCFS: {
-    title: 'FCFS - First-Come, First-Served',
-    description:
-      'FCFS melayani permintaan persis sesuai urutan kedatangan. Head bergerak tanpa mempertimbangkan jarak.',
-    characteristic:
-      'Karakteristik: Sederhana dan adil, tetapi gerakan head bisa sangat boros.',
-  },
-  SSTF: {
-    title: 'SSTF - Shortest Seek Time First',
-    description:
-      'SSTF memilih permintaan dengan jarak terdekat dari posisi head saat ini untuk meminimalkan waktu pencarian.',
-    characteristic:
-      'Karakteristik: Sangat efisien dalam THM, namun berisiko menyebabkan starvation (kelaparan) pada request yang posisinya jauh.',
-  },
-  SCAN: {
-    title: 'SCAN - Elevator Algorithm',
-    description:
-      'Head bergerak ke satu arah melayani seluruh permintaan hingga mencapai ujung track (jika masih ada permintaan di sisi seberang), lalu berbalik arah.',
-    characteristic:
-      'Karakteristik: Mencegah starvation dan memberikan waktu tunggu yang lebih konsisten dibanding SSTF.',
-  },
-  'C-SCAN': {
-    title: 'C-SCAN - Circular SCAN',
-    description:
-      'Mirip dengan SCAN, namun saat mencapai ujung, head langsung melompat kembali ke ujung awal tanpa melayani permintaan di perjalanan kembali.',
-    characteristic:
-      'Karakteristik: Lompatan ujung ke ujung dihitung sebagai gerakan head. Memberikan waktu respon yang paling seragam.',
-  },
+const EMPTY_RESULT = {
+  algorithm: "FCFS",
+  sequence: [],
+  seekSteps: [],
+  thm: 0,
+  avgSeek: 0,
 };
 
-/**
- * UTILITY FUNCTIONS FOR DISK SCHEDULING ALGORITHMS
- */
+export default function Visualizer({ isDarkMode = false }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const algoParam = searchParams.get("algo");
 
-/**
- * 1. FCFS (First-Come, First-Served)
- */
-export function calculateFCFS(initialHead, queue) {
-  const sequence = [initialHead, ...queue];
-  let thm = 0;
-  const seekSteps = [];
+  const [totalTrack, setTotalTrack] = useState("");
+  const [initialHead, setInitialHead] = useState("");
+  const [queueInput, setQueueInput] = useState("");
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState(
+    VALID_ALGOS.includes(algoParam) ? algoParam : "FCFS",
+  );
+  const [prevAlgoParam, setPrevAlgoParam] = useState(algoParam);
 
-  for (let i = 0; i < sequence.length - 1; i++) {
-    const from = sequence[i];
-    const to = sequence[i + 1];
-    const dist = Math.abs(to - from);
-    thm += dist;
-    seekSteps.push({ from, to, distance: dist });
-  }
-
-  return {
-    algorithm: 'FCFS',
-    sequence,
-    thm,
-    avgSeek: queue.length > 0 ? thm / queue.length : 0,
-    seekSteps,
-  };
-}
-
-/**
- * 2. SSTF (Shortest Seek Time First)
- */
-export function calculateSSTF(initialHead, queue) {
-  const sequence = [initialHead];
-  let thm = 0;
-  const seekSteps = [];
-  const remaining = [...queue];
-  let current = initialHead;
-
-  while (remaining.length > 0) {
-    let minDistance = Infinity;
-    let closestIndex = -1;
-
-    for (let i = 0; i < remaining.length; i++) {
-      const dist = Math.abs(remaining[i] - current);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestIndex = i;
-      }
-    }
-
-    const nextTrack = remaining.splice(closestIndex, 1)[0];
-    thm += minDistance;
-    seekSteps.push({ from: current, to: nextTrack, distance: minDistance });
-    sequence.push(nextTrack);
-    current = nextTrack;
-  }
-
-  return {
-    algorithm: 'SSTF',
-    sequence,
-    thm,
-    avgSeek: queue.length > 0 ? thm / queue.length : 0,
-    seekSteps,
-  };
-}
-
-/**
- * 3. SCAN (Elevator Algorithm)
- * Moving right: visits all tracks >= head in ascending order.
- * If there are requests < head on the opposite side, travels to maxTrack (totalTrack - 1),
- * then reverses direction and visits remaining tracks in descending order.
- */
-export function calculateSCAN(initialHead, queue, totalTrack, direction = 'right') {
-  const maxTrack = totalTrack - 1;
-  const sequence = [initialHead];
-  let thm = 0;
-  const seekSteps = [];
-
-  const left = queue.filter((t) => t < initialHead).sort((a, b) => b - a); // descending: 37, 14
-  const right = queue.filter((t) => t > initialHead).sort((a, b) => a - b); // ascending: 65, 67, ...
-  const same = queue.filter((t) => t === initialHead);
-
-  same.forEach((t) => sequence.push(t));
-  let current = initialHead;
-
-  if (direction === 'right') {
-    // Service all to the right
-    for (const track of right) {
-      const dist = Math.abs(track - current);
-      thm += dist;
-      seekSteps.push({ from: current, to: track, distance: dist });
-      sequence.push(track);
-      current = track;
-    }
-
-    // Only visit boundary (maxTrack) if there are requests on the opposite side
-    if (left.length > 0) {
-      if (current < maxTrack) {
-        const dist = Math.abs(maxTrack - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: maxTrack, distance: dist, isBoundary: true });
-        sequence.push(maxTrack);
-        current = maxTrack;
-      }
-
-      // Reverse direction and service left side
-      for (const track of left) {
-        const dist = Math.abs(track - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: track, distance: dist });
-        sequence.push(track);
-        current = track;
-      }
-    }
-  } else {
-    // direction === 'left'
-    for (const track of left) {
-      const dist = Math.abs(track - current);
-      thm += dist;
-      seekSteps.push({ from: current, to: track, distance: dist });
-      sequence.push(track);
-      current = track;
-    }
-
-    // Only visit boundary (0) if there are requests on the opposite side
-    if (right.length > 0) {
-      if (current > 0) {
-        const dist = Math.abs(0 - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: 0, distance: dist, isBoundary: true });
-        sequence.push(0);
-        current = 0;
-      }
-
-      // Reverse direction and service right side (ascending)
-      const rightAsc = [...right].sort((a, b) => a - b);
-      for (const track of rightAsc) {
-        const dist = Math.abs(track - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: track, distance: dist });
-        sequence.push(track);
-        current = track;
-      }
+  if (algoParam !== prevAlgoParam) {
+    setPrevAlgoParam(algoParam);
+    if (algoParam && VALID_ALGOS.includes(algoParam)) {
+      setSelectedAlgorithm(algoParam);
     }
   }
 
-  return {
-    algorithm: 'SCAN',
-    sequence,
-    thm,
-    avgSeek: queue.length > 0 ? thm / queue.length : 0,
-    seekSteps,
-  };
-}
-
-/**
- * 4. C-SCAN (Circular SCAN)
- * Visits requests in direction of movement.
- * Reaches boundary if requests exist on the opposite side.
- * Jumps to opposite boundary (0 or maxTrack), explicitly adding jump distance to THM!
- * Continues moving in the same direction.
- */
-export function calculateCSCAN(initialHead, queue, totalTrack, direction = 'right') {
-  const maxTrack = totalTrack - 1;
-  const sequence = [initialHead];
-  let thm = 0;
-  const seekSteps = [];
-
-  const left = queue.filter((t) => t < initialHead).sort((a, b) => a - b); // ascending for rightward scan
-  const right = queue.filter((t) => t > initialHead).sort((a, b) => a - b); // ascending
-  const same = queue.filter((t) => t === initialHead);
-
-  same.forEach((t) => sequence.push(t));
-  let current = initialHead;
-
-  if (direction === 'right') {
-    // Service all to the right
-    for (const track of right) {
-      const dist = Math.abs(track - current);
-      thm += dist;
-      seekSteps.push({ from: current, to: track, distance: dist });
-      sequence.push(track);
-      current = track;
-    }
-
-    // If there are requests on the other side
-    if (left.length > 0) {
-      // 1. Move to disk boundary (maxTrack)
-      if (current < maxTrack) {
-        const dist = Math.abs(maxTrack - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: maxTrack, distance: dist, isBoundary: true });
-        sequence.push(maxTrack);
-        current = maxTrack;
-      }
-
-      // 2. End-to-end jump: maxTrack to 0 (explicitly calculated and added to THM)
-      const jumpDistance = Math.abs(0 - maxTrack);
-      thm += jumpDistance;
-      seekSteps.push({
-        from: maxTrack,
-        to: 0,
-        distance: jumpDistance,
-        isJump: true,
-      });
-      sequence.push(0);
-      current = 0;
-
-      // 3. Continue in same direction (increasing tracks from 0)
-      for (const track of left) {
-        const dist = Math.abs(track - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: track, distance: dist });
-        sequence.push(track);
-        current = track;
-      }
-    }
-  } else {
-    // direction === 'left'
-    const leftDesc = queue.filter((t) => t < initialHead).sort((a, b) => b - a);
-    const rightDesc = queue.filter((t) => t > initialHead).sort((a, b) => b - a);
-
-    for (const track of leftDesc) {
-      const dist = Math.abs(track - current);
-      thm += dist;
-      seekSteps.push({ from: current, to: track, distance: dist });
-      sequence.push(track);
-      current = track;
-    }
-
-    if (rightDesc.length > 0) {
-      if (current > 0) {
-        const dist = Math.abs(0 - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: 0, distance: dist, isBoundary: true });
-        sequence.push(0);
-        current = 0;
-      }
-
-      // End-to-end jump: 0 to maxTrack (explicitly added to THM)
-      const jumpDistance = Math.abs(maxTrack - 0);
-      thm += jumpDistance;
-      seekSteps.push({
-        from: 0,
-        to: maxTrack,
-        distance: jumpDistance,
-        isJump: true,
-      });
-      sequence.push(maxTrack);
-      current = maxTrack;
-
-      for (const track of rightDesc) {
-        const dist = Math.abs(track - current);
-        thm += dist;
-        seekSteps.push({ from: current, to: track, distance: dist });
-        sequence.push(track);
-        current = track;
-      }
-    }
-  }
-
-  return {
-    algorithm: 'C-SCAN',
-    sequence,
-    thm,
-    avgSeek: queue.length > 0 ? thm / queue.length : 0,
-    seekSteps,
-  };
-}
-
-export default function Visualizer() {
-  // Input states (blank by default, ready for user inputs)
-  const [totalTrack, setTotalTrack] = useState('');
-  const [initialHead, setInitialHead] = useState('');
-  const [queueInput, setQueueInput] = useState('');
-  const [direction, setDirection] = useState('right'); // 'right' or 'left'
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState('FCFS');
-
-  // Simulation execution & animation state
   const [hasSimulated, setHasSimulated] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playSpeed, setPlaySpeed] = useState(1); // 0.5, 1, 2
-  const [validationError, setValidationError] = useState('');
+  const [playSpeed, setPlaySpeed] = useState(1);
+  const [validationError, setValidationError] = useState("");
 
-  // Active navigation tab
-  const [activeTab, setActiveTab] = useState('simulasi');
+  const stepListRef = useRef(null);
 
-  // Parse comma-separated queue input
-  const parsedQueue = useMemo(() => {
-    return queueInput
-      .split(',')
-      .map((item) => item.trim())
-      .filter((item) => item !== '' && !isNaN(Number(item)))
-      .map((item) => Number(item));
-  }, [queueInput]);
+  const resetSimulationProgress = () => {
+    setHasSimulated(false);
+    setCurrentStep(0);
+    setIsPlaying(false);
+    setValidationError("");
+  };
 
-  // Compute all 4 algorithms based on current parameters
+  const parsedQueue = useMemo(
+    () => parseRequestQueue(queueInput),
+    [queueInput],
+  );
+
   const computedAll = useMemo(() => {
     const head = Number(initialHead) || 0;
     const tracks = Number(totalTrack) || 200;
-    const q = parsedQueue;
+    return compareAllAlgorithms(head, parsedQueue, tracks);
+  }, [initialHead, totalTrack, parsedQueue]);
 
-    const fcfs = calculateFCFS(head, q);
-    const sstf = calculateSSTF(head, q);
-    const scan = calculateSCAN(head, q, tracks, direction);
-    const cscan = calculateCSCAN(head, q, tracks, direction);
+  const currentResult = computedAll[selectedAlgorithm] || EMPTY_RESULT;
 
-    const list = [fcfs, sstf, scan, cscan];
-    let best = list[0];
-    for (const item of list) {
-      if (item.thm < best.thm) {
-        best = item;
-      }
-    }
+  // Status selesai hanya aktif ketika simulasi telah dijalankan dan mencapai langkah terakhir
+  const isSimulationCompleted =
+    hasSimulated &&
+    currentResult.sequence.length > 0 &&
+    currentStep >= currentResult.sequence.length - 1;
 
-    const savingsFromFCFS =
-      fcfs.thm > 0
-        ? Math.round(((fcfs.thm - best.thm) / fcfs.thm) * 100)
-        : 0;
-
-    return {
-      FCFS: fcfs,
-      SSTF: sstf,
-      SCAN: scan,
-      'C-SCAN': cscan,
-      best,
-      savingsFromFCFS,
-    };
-  }, [initialHead, totalTrack, parsedQueue, direction]);
-
-  // Result of currently selected algorithm
-  const currentResult = computedAll[selectedAlgorithm];
-
-  // Validate inputs
-  const validateInputs = () => {
-    const head = Number(initialHead);
-    const tracks = Number(totalTrack);
-
-    if (isNaN(tracks) || tracks < 2) {
-      setValidationError('Total track harus berupa angka minimal 2.');
-      return false;
-    }
-    if (isNaN(head) || head < 0 || head >= tracks) {
-      setValidationError(`Posisi awal head harus antara 0 dan ${tracks - 1}.`);
-      return false;
-    }
-    if (parsedQueue.length === 0) {
-      setValidationError('Antrean permintaan tidak boleh kosong.');
-      return false;
-    }
-    const outOfBounds = parsedQueue.filter((t) => t < 0 || t >= tracks);
-    if (outOfBounds.length > 0) {
-      setValidationError(
-        `Track [${outOfBounds.join(', ')}] berada di luar rentang (0 - ${tracks - 1}).`
-      );
-      return false;
-    }
-    setValidationError('');
-    return true;
+  const handleLoadSample = () => {
+    const preset = generateRandomPreset(initialHead, queueInput);
+    setTotalTrack(preset.totalTrack);
+    setInitialHead(preset.initialHead);
+    setQueueInput(preset.queueInput);
+    resetSimulationProgress();
   };
 
-  // Run simulation handler
   const handleRunSimulation = () => {
-    if (!validateInputs()) return;
+    const errorMsg = validateSimulationInput({
+      totalTrack,
+      initialHead,
+      queue: parsedQueue,
+    });
+
+    if (errorMsg) {
+      setValidationError(errorMsg);
+      return;
+    }
+
+    setValidationError("");
     setHasSimulated(true);
     setCurrentStep(0);
     setIsPlaying(true);
   };
 
-  // Reset handler
   const handleReset = () => {
-    setTotalTrack('');
-    setInitialHead('');
-    setQueueInput('');
-    setDirection('right');
-    setSelectedAlgorithm('FCFS');
-    setHasSimulated(false);
-    setCurrentStep(0);
-    setIsPlaying(false);
-    setValidationError('');
+    setTotalTrack("");
+    setInitialHead("");
+    setQueueInput("");
+    setSelectedAlgorithm("FCFS");
+    resetSimulationProgress();
+    setSearchParams({}, { replace: true });
   };
 
-  // Animation timer effect
   useEffect(() => {
     if (!isPlaying || !hasSimulated) return;
 
-    const delay = 700 / playSpeed;
+    const delay = 750 / playSpeed;
     const timer = setInterval(() => {
       setCurrentStep((prev) => {
         if (prev < currentResult.sequence.length - 1) {
           return prev + 1;
-        } else {
-          setIsPlaying(false);
-          return prev;
         }
+        setIsPlaying(false);
+        return prev;
       });
     }, delay);
 
     return () => clearInterval(timer);
   }, [isPlaying, hasSimulated, playSpeed, currentResult.sequence.length]);
 
-  // Stepping controls
+  useEffect(() => {
+    if (!hasSimulated || !stepListRef.current) return;
+    stepListRef.current.scrollTo({
+      top: stepListRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [currentStep, hasSimulated, selectedAlgorithm]);
+
   const handleStepBack = () => {
     setIsPlaying(false);
     setCurrentStep((prev) => Math.max(0, prev - 1));
@@ -491,7 +182,9 @@ export default function Visualizer() {
 
   const handleStepForward = () => {
     setIsPlaying(false);
-    setCurrentStep((prev) => Math.min(currentResult.sequence.length - 1, prev + 1));
+    setCurrentStep((prev) =>
+      Math.min(currentResult.sequence.length - 1, prev + 1),
+    );
   };
 
   const handleTogglePlay = () => {
@@ -507,683 +200,461 @@ export default function Visualizer() {
     }
   };
 
-  // Head movement visible data points
-  const visiblePoints = useMemo(() => {
+  const visibleSequence = useMemo(() => {
     if (!hasSimulated) return [];
-    return currentResult.sequence.slice(0, currentStep + 1).map((track, step) => ({
+    return currentResult.sequence.slice(0, currentStep + 1);
+  }, [hasSimulated, currentResult.sequence, currentStep]);
+
+  const visiblePoints = useMemo(() => {
+    return visibleSequence.map((track, step) => ({
       x: track,
       y: step,
     }));
-  }, [hasSimulated, currentResult.sequence, currentStep]);
+  }, [visibleSequence]);
 
-  // Line Chart Configuration
-  const lineChartData = {
-    datasets: [
-      {
-        label: 'Pergerakan Head',
-        data: visiblePoints,
-        borderColor: '#ec4899', // Neon pink accent
-        backgroundColor: '#ec4899',
-        borderWidth: 2.5,
-        tension: 0, // Straight lines between cylinders
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        pointBackgroundColor: visiblePoints.map((pt, idx) =>
-          idx === 0
-            ? '#38bdf8' // Cyan for start
-            : idx === currentStep
-            ? '#f43f5e' // Bright red/pink for active head
-            : '#ec4899'
-        ),
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 1.5,
-        segment: {
-          borderDash: (ctx) => {
-            // Render C-SCAN circular jumps as dashed line
-            const p0Idx = ctx.p0DataIndex;
-            const p1Idx = ctx.p1DataIndex;
-            if (
-              selectedAlgorithm === 'C-SCAN' &&
-              p0Idx !== undefined &&
-              p1Idx !== undefined
-            ) {
-              const fromVal = visiblePoints[p0Idx]?.x;
-              const toVal = visiblePoints[p1Idx]?.x;
-              if (Math.abs(fromVal - toVal) >= totalTrack - 2) {
-                return [6, 4];
-              }
-            }
-            return undefined;
-          },
-          borderColor: (ctx) => {
-            const p0Idx = ctx.p0DataIndex;
-            const p1Idx = ctx.p1DataIndex;
-            if (
-              selectedAlgorithm === 'C-SCAN' &&
-              p0Idx !== undefined &&
-              p1Idx !== undefined
-            ) {
-              const fromVal = visiblePoints[p0Idx]?.x;
-              const toVal = visiblePoints[p1Idx]?.x;
-              if (Math.abs(fromVal - toVal) >= totalTrack - 2) {
-                return 'rgba(236, 72, 153, 0.45)';
-              }
-            }
-            return '#ec4899';
-          },
-        },
-      },
-    ],
-  };
+  const lineChartData = useMemo(
+    () =>
+      buildLineChartData(
+        visiblePoints,
+        currentStep,
+        selectedAlgorithm,
+        totalTrack,
+      ),
+    [visiblePoints, currentStep, selectedAlgorithm, totalTrack],
+  );
 
-  const lineChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: {
-      duration: isPlaying ? 250 : 400,
-    },
-    scales: {
-      x: {
-        type: 'linear',
-        min: 0,
-        max: Math.max(10, (Number(totalTrack) || 200) - 1),
-        title: {
-          display: true,
-          text: 'Nomor track',
-          color: '#9ca3af',
-          font: { size: 12, weight: '500' },
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.06)',
-        },
-        ticks: {
-          color: '#9ca3af',
-          stepSize: Math.max(10, Math.round((Number(totalTrack) || 200) / 10)),
-        },
-      },
-      y: {
-        type: 'linear',
-        reverse: true, // INVERTED: step 0 is at the top!
-        min: 0,
-        max: Math.max(8, (currentResult?.sequence?.length || 9) - 1),
-        title: {
-          display: true,
-          text: 'Langkah eksekusi',
-          color: '#9ca3af',
-          font: { size: 12, weight: '500' },
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.06)',
-        },
-        ticks: {
-          color: '#9ca3af',
-          stepSize: 1,
-          precision: 0,
-        },
-      },
-    },
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        backgroundColor: '#1c1538',
-        titleColor: '#f472b6',
-        bodyColor: '#ffffff',
-        borderColor: '#ec4899',
-        borderWidth: 1,
-        padding: 10,
-        callbacks: {
-          label: (context) => {
-            const step = context.raw.y;
-            const track = context.raw.x;
-            if (step === 0) return `Posisi Awal Head: Track ${track}`;
-            return `Langkah ${step}: Menuju Track ${track}`;
-          },
-        },
-      },
-    },
-  };
+  const lineChartOptions = useMemo(
+    () =>
+      buildLineChartOptions({
+        playSpeed,
+        totalTrack,
+        sequenceLength: currentResult.sequence.length,
+        isDarkMode,
+      }),
+    [playSpeed, totalTrack, currentResult.sequence.length, isDarkMode],
+  );
 
-  // Bar Chart Configuration
-  const barAlgorithms = ['FCFS', 'SSTF', 'SCAN', 'C-SCAN'];
-  const barValues = barAlgorithms.map((algo) => computedAll[algo].thm);
+  const barChartData = useMemo(
+    () => buildBarChartData(computedAll, isDarkMode),
+    [computedAll, isDarkMode],
+  );
+
+  const barChartOptions = useMemo(
+    () => buildBarChartOptions(computedAll, isDarkMode),
+    [computedAll, isDarkMode],
+  );
+
   const bestAlgo = computedAll.best;
 
-  const barChartData = {
-    labels: barAlgorithms,
-    datasets: [
-      {
-        label: 'Total Head Movement',
-        data: barValues,
-        backgroundColor: barAlgorithms.map((algo) =>
-          algo === bestAlgo.algorithm
-            ? '#ec4899' // Solid neon pink for best performer
-            : 'rgba(236, 72, 153, 0.35)' // Translucent magenta for others
-        ),
-        borderColor: barAlgorithms.map((algo) =>
-          algo === bestAlgo.algorithm ? '#f43f5e' : 'rgba(236, 72, 153, 0.7)'
-        ),
-        borderWidth: barAlgorithms.map((algo) =>
-          algo === bestAlgo.algorithm ? 2 : 1.5
-        ),
-        borderRadius: 8,
-        hoverBackgroundColor: '#f43f5e',
-      },
-    ],
-  };
-
-  const barChartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: false,
-      },
-      tooltip: {
-        backgroundColor: '#1c1538',
-        titleColor: '#f472b6',
-        bodyColor: '#ffffff',
-        borderColor: '#ec4899',
-        borderWidth: 1,
-        padding: 12,
-        callbacks: {
-          label: (context) => {
-            const algo = context.label;
-            const thm = context.raw;
-            const isBest = algo === bestAlgo.algorithm;
-            return [
-              `Total Head Movement: ${thm} track`,
-              isBest
-                ? `🏆 Performa Terbaik! Hemat ${computedAll.savingsFromFCFS}% vs FCFS`
-                : `Selisih: +${thm - bestAlgo.thm} track dari ${bestAlgo.algorithm}`,
-            ];
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-        ticks: {
-          color: '#d1d5db',
-          font: { weight: '600', size: 13 },
-        },
-      },
-      y: {
-        beginAtZero: true,
-        title: {
-          display: true,
-          text: 'Total Head Movement',
-          color: '#9ca3af',
-          font: { size: 12, weight: '500' },
-        },
-        grid: {
-          color: 'rgba(255, 255, 255, 0.06)',
-        },
-        ticks: {
-          color: '#9ca3af',
-          stepSize: 100,
-        },
-      },
-    },
-  };
-
-  // Status message below the Line Chart
-  const getStatusMessage = () => {
-    if (!hasSimulated) {
-      return 'Tekan Jalankan Simulasi untuk memulai.';
-    }
-    if (currentStep === 0) {
-      return `Head berada di posisi awal track ${initialHead}.`;
-    }
-    const stepInfo = currentResult.seekSteps[currentStep - 1];
-    if (!stepInfo) return 'Simulasi selesai.';
-
-    if (stepInfo.isJump) {
-      return `Langkah ${currentStep}: Lompatan C-SCAN dari ujung track ${stepInfo.from} ke track ${stepInfo.to} (Jarak lompatan: ${stepInfo.distance} track).`;
-    }
-    if (stepInfo.isBoundary) {
-      return `Langkah ${currentStep}: Head mencapai batas disk di track ${stepInfo.to} (Jarak: ${stepInfo.distance} track).`;
-    }
-    return `Langkah ${currentStep}: Head berpindah dari track ${stepInfo.from} ke ${stepInfo.to} (Jarak pencarian: ${stepInfo.distance} track).`;
-  };
+  const formattedAvgSeek = hasSimulated
+    ? currentResult.avgSeek % 1 === 0
+      ? currentResult.avgSeek
+      : currentResult.avgSeek.toFixed(2)
+    : 0;
 
   return (
-    <div className="min-h-screen bg-[#0b0816] text-gray-100 flex flex-col relative overflow-x-hidden selection:bg-pink-500 selection:text-white">
-      {/* Ambient neon pink and purple glow backdrop */}
-      <div className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute top-[-5%] left-[25%] w-[600px] h-[500px] bg-pink-600/10 rounded-full blur-[140px]" />
-        <div className="absolute top-[35%] right-[10%] w-[500px] h-[500px] bg-purple-700/10 rounded-full blur-[160px]" />
-        <div className="absolute bottom-[-10%] left-[20%] w-[650px] h-[450px] bg-pink-500/10 rounded-full blur-[150px]" />
-      </div>
+    <div className="relative isolate min-h-screen overflow-x-clip bg-[#f8f9fb] text-slate-900 transition-colors duration-300 selection:bg-pink-500 selection:text-white dark:bg-slate-950 dark:text-gray-100">
+      <AmbientPageBackdrop variant="visualizer" />
 
-      {/* Top Navbar matching Figma Design */}
-      <nav className="relative z-20 w-full px-6 py-4 flex items-center justify-between border-b border-purple-900/20 bg-[#0c081b]/60 backdrop-blur-md">
-        {/* Top Left: DM Logo */}
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-10 flex items-center justify-center select-none cursor-pointer">
-            <img
-              src={dmLogoImg}
-              alt="DM Logo"
-              className="w-full h-full object-contain filter drop-shadow-[0_0_10px_rgba(236,72,153,0.85)]"
-            />
-          </div>
-        </div>
-
-        {/* Top Center: Floating Navigation Pill */}
-        <div className="flex items-center bg-[#16112a]/90 backdrop-blur-md border border-pink-500/20 rounded-full px-3 py-1.5 shadow-[0_0_20px_rgba(236,72,153,0.18)] gap-1">
-          <button
-            onClick={() => setActiveTab('home')}
-            title="Beranda"
-            className={`p-2 rounded-full transition cursor-pointer ${
-              activeTab === 'home'
-                ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.7)]'
-                : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Home className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            title="Dashboard"
-            className={`p-2 rounded-full transition cursor-pointer ${
-              activeTab === 'dashboard'
-                ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.7)]'
-                : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            title="Riwayat"
-            className={`p-2 rounded-full transition cursor-pointer ${
-              activeTab === 'history'
-                ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.7)]'
-                : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setActiveTab('simulasi')}
-            title="Pengaturan / Simulasi"
-            className={`p-2 rounded-full transition cursor-pointer ${
-              activeTab === 'simulasi'
-                ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.7)]'
-                : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Top Right: Theme Toggle */}
-        <div className="flex items-center gap-2">
-          <button
-            className="w-9 h-9 rounded-full bg-[#17112e] border border-purple-900/50 flex items-center justify-center text-amber-400 hover:text-amber-300 transition shadow-[0_0_12px_rgba(251,191,36,0.15)] cursor-pointer"
-            title="Mode Gelap Aktif"
-          >
-            <Sun className="w-4 h-4" />
-          </button>
-        </div>
-      </nav>
-
-      <div className="relative z-10 flex flex-1 p-4 md:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
-        {/* Main Content Area */}
-        <main className="flex-1 flex flex-col gap-6">
-          {/* Section Title */}
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8 md:py-10">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow-sm">
-              Simulasi
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
+              Simulasi Disk Scheduling
             </h1>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
+              Masukkan parameter disk atau gunakan data contoh untuk
+              membandingkan efisiensi pergerakan head.
+            </p>
           </div>
 
-          {/* Validation Alert */}
-          {validationError && (
-            <div className="flex items-center gap-3 bg-rose-950/60 border border-rose-500/40 text-rose-200 px-4 py-3 rounded-xl text-sm">
-              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-              <span>{validationError}</span>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            className="dm-btn-outline-glow group inline-flex cursor-pointer items-center gap-2 rounded-full border border-pink-300 bg-pink-50 px-4 py-2 text-xs font-semibold text-[#ec008c] hover:-translate-y-0.5 hover:border-[#ec008c] hover:bg-[#fff0f7] active:translate-y-0 dark:border-pink-500/40 dark:bg-pink-500/15 dark:text-pink-300 dark:hover:border-pink-400 dark:hover:bg-pink-500/25 dark:hover:text-pink-100"
+          >
+            <Sparkles className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
+            Isi Contoh Data
+          </button>
+        </div>
 
-          {/* Top Grid: Control Panel (Left) & Head Movement Visualization (Right) */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* LEFT: Control Panel */}
-            <section className="lg:col-span-5 bg-[#140e29]/85 backdrop-blur-md border border-pink-500/20 rounded-2xl p-5 md:p-6 shadow-[0_0_25px_rgba(236,72,153,0.08)] flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-white tracking-wide">
+        {/* Validation Alert */}
+        {validationError && (
+          <div className="flex items-center gap-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-950/60 dark:text-rose-200">
+            <AlertCircle className="h-5 w-5 shrink-0 text-rose-500 dark:text-rose-400" />
+            <span>{validationError}</span>
+          </div>
+        )}
+
+        {/* TOP GRID: Control Panel & Head Movement Chart */}
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+          {/* LEFT: Control Panel */}
+          <section
+            className={`flex h-full flex-col justify-between gap-5 rounded-2xl p-5 transition-all duration-300 hover:border-pink-500/40 md:p-6 lg:col-span-5 ${CARD_SURFACE_CLASSES}`}
+          >
+            <div className="flex flex-col gap-4">
+              <h2 className="text-base font-bold tracking-wide text-slate-900 dark:text-white">
                 Panel Kontrol
               </h2>
 
-              {/* Number Inputs: Total Track & Initial Head */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1.5">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-gray-300">
                     Total track (0 - N)
                   </label>
                   <input
                     type="number"
                     min="2"
                     value={totalTrack}
-                    onChange={(e) => setTotalTrack(e.target.value)}
-                    className="w-full bg-[#1b1435] border border-purple-900/60 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-3.5 py-2.5 text-white text-sm transition outline-none"
-                    placeholder="200"
+                    onChange={(e) => {
+                      setTotalTrack(e.target.value);
+                      resetSimulationProgress();
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400/80 hover:border-pink-300 focus:border-[#ec008c] focus:ring-1 focus:ring-[#ec008c] dark:border-purple-900/60 dark:bg-[#1b1435] dark:text-white dark:placeholder:text-gray-500 dark:hover:border-pink-500/40"
+                    placeholder="Isi jumlah track"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1.5">
+                  <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-gray-300">
                     Posisi awal head
                   </label>
                   <input
                     type="number"
                     min="0"
-                    max={totalTrack - 1}
+                    max={totalTrack ? Number(totalTrack) - 1 : undefined}
                     value={initialHead}
-                    onChange={(e) => setInitialHead(e.target.value)}
-                    className="w-full bg-[#1b1435] border border-purple-900/60 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-3.5 py-2.5 text-white text-sm transition outline-none"
-                    placeholder="53"
+                    onChange={(e) => {
+                      setInitialHead(e.target.value);
+                      resetSimulationProgress();
+                    }}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400/80 hover:border-pink-300 focus:border-[#ec008c] focus:ring-1 focus:ring-[#ec008c] dark:border-purple-900/60 dark:bg-[#1b1435] dark:text-white dark:placeholder:text-gray-500 dark:hover:border-pink-500/40"
+                    placeholder="Isi posisi awal"
                   />
                 </div>
               </div>
 
-              {/* Text Input: Request Queue */}
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1.5">
+                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-gray-300">
                   Antrean permintaan (pisahkan dengan koma)
                 </label>
                 <input
                   type="text"
                   value={queueInput}
-                  onChange={(e) => setQueueInput(e.target.value)}
-                  className="w-full bg-[#1b1435] border border-purple-900/60 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-3.5 py-2.5 text-white text-sm transition outline-none"
-                  placeholder="98, 183, 37, 122, 14, 124, 65, 67"
+                  onChange={(e) => {
+                    setQueueInput(e.target.value);
+                    resetSimulationProgress();
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400/80 hover:border-pink-300 focus:border-[#ec008c] focus:ring-1 focus:ring-[#ec008c] dark:border-purple-900/60 dark:bg-[#1b1435] dark:text-white dark:placeholder:text-gray-500 dark:hover:border-pink-500/40"
+                  placeholder="Masukkan daftar track, pisahkan dengan koma"
                 />
               </div>
 
-              {/* Initial Direction Radio Buttons */}
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-2">
-                  Arah awal
-                </label>
-                <div className="flex items-center gap-6">
-                  <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-200 select-none">
-                    <input
-                      type="radio"
-                      name="direction"
-                      value="right"
-                      checked={direction === 'right'}
-                      onChange={() => setDirection('right')}
-                      className="accent-pink-500 w-4 h-4 cursor-pointer"
-                    />
-                    <span>Kanan (ke {Math.max(0, totalTrack - 1)})</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-200 select-none">
-                    <input
-                      type="radio"
-                      name="direction"
-                      value="left"
-                      checked={direction === 'left'}
-                      onChange={() => setDirection('left')}
-                      className="accent-pink-500 w-4 h-4 cursor-pointer"
-                    />
-                    <span>Kiri (ke 0)</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Algorithm Dropdown */}
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1.5">
+                <label className="mb-1.5 block text-xs font-medium text-slate-600 dark:text-gray-300">
                   Algoritma
                 </label>
                 <select
                   value={selectedAlgorithm}
-                  onChange={(e) => setSelectedAlgorithm(e.target.value)}
-                  className="w-full bg-[#1b1435] border border-purple-900/60 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 rounded-xl px-3.5 py-2.5 text-white text-sm transition outline-none cursor-pointer"
+                  onChange={(e) => {
+                    const nextAlgo = e.target.value;
+                    setSelectedAlgorithm(nextAlgo);
+                    setSearchParams({ algo: nextAlgo }, { replace: true });
+                    resetSimulationProgress();
+                  }}
+                  className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition hover:border-pink-300 focus:border-[#ec008c] focus:ring-1 focus:ring-[#ec008c] dark:border-purple-900/60 dark:bg-[#1b1435] dark:text-white dark:hover:border-pink-500/40"
                 >
-                  <option value="FCFS">FCFS</option>
-                  <option value="SSTF">SSTF</option>
-                  <option value="SCAN">SCAN</option>
-                  <option value="C-SCAN">C-SCAN</option>
+                  {VALID_ALGOS.map((algo) => (
+                    <option key={algo} value={algo}>
+                      {algo}
+                    </option>
+                  ))}
                 </select>
               </div>
+            </div>
 
-              {/* Dynamic Algorithm Description Box */}
-              <div className="bg-[#1a1336]/75 border border-purple-900/40 rounded-xl p-4 text-xs leading-relaxed space-y-2 text-gray-300">
-                <div className="font-semibold text-white text-sm">
-                  {ALGORITHM_DESCRIPTIONS[selectedAlgorithm].title}
-                </div>
-                <p>{ALGORITHM_DESCRIPTIONS[selectedAlgorithm].description}</p>
-                <p className="text-gray-400">
-                  {ALGORITHM_DESCRIPTIONS[selectedAlgorithm].characteristic}
-                </p>
-              </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={handleRunSimulation}
+                className="dm-btn-shimmer flex-1 cursor-pointer rounded-xl bg-[#ec008c] px-5 py-3 text-center font-semibold text-white shadow-md shadow-pink-500/25 hover:-translate-y-0.5 hover:bg-[#ff149d] active:translate-y-0"
+              >
+                Jalankan Simulasi
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="dm-btn-outline-glow cursor-pointer rounded-xl border border-slate-200 bg-white px-6 py-3 font-medium text-slate-600 hover:-translate-y-0.5 hover:border-[#ec008c] hover:bg-[#fff5fa] hover:text-[#ec008c] active:translate-y-0 dark:border-purple-900/60 dark:bg-[#1d163a] dark:text-gray-300 dark:hover:border-pink-400 dark:hover:bg-[#2a1d4f] dark:hover:text-pink-100"
+              >
+                Reset
+              </button>
+            </div>
+          </section>
 
-              {/* Action Buttons: Jalankan Simulasi & Reset */}
-              <div className="flex items-center gap-3 pt-2">
+          {/* RIGHT: Simulation Chart & Compact THM / Average Seek Time Footer */}
+          <section
+            className={`flex h-full flex-col justify-between rounded-2xl p-5 transition-all duration-300 hover:border-pink-500/40 md:p-6 lg:col-span-7 ${CARD_SURFACE_CLASSES}`}
+          >
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-bold tracking-wide text-slate-900 dark:text-white">
+                Visualisasi Pergerakan Head
+              </h2>
+
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleRunSimulation}
-                  className="flex-1 bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 hover:from-pink-400 hover:to-rose-400 text-white font-semibold py-3 px-5 rounded-xl shadow-[0_0_20px_rgba(236,72,153,0.55)] transition-all duration-200 active:scale-95 text-center cursor-pointer"
+                  onClick={handleStepBack}
+                  disabled={!hasSimulated || currentStep <= 0}
+                  title="Langkah Sebelumnya"
+                  className="dm-btn-outline-glow flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:-translate-y-0.5 hover:border-[#ec008c] hover:bg-[#fff5fa] hover:text-[#ec008c] disabled:pointer-events-none disabled:opacity-40 dark:border-purple-900/50 dark:bg-[#1e153b] dark:text-gray-300 dark:hover:border-pink-400 dark:hover:bg-[#2b1d52] dark:hover:text-pink-200"
                 >
-                  Jalankan Simulasi
+                  <SkipBack className="h-4 w-4" />
                 </button>
+
                 <button
                   type="button"
-                  onClick={handleReset}
-                  className="bg-[#1d163a] hover:bg-[#261d4a] border border-purple-900/60 hover:border-pink-500/40 text-gray-300 hover:text-white font-medium py-3 px-6 rounded-xl transition duration-200 active:scale-95 cursor-pointer"
+                  onClick={handleTogglePlay}
+                  title={isPlaying ? "Jeda" : "Mulai / Lanjutkan"}
+                  className="dm-btn-shimmer flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-[#ec008c] text-white shadow-md shadow-pink-500/30 hover:-translate-y-0.5 hover:scale-105 hover:bg-[#ff149d] active:scale-95"
                 >
-                  Reset
+                  {isPlaying ? (
+                    <Pause className="h-4 w-4 fill-white" />
+                  ) : (
+                    <Play className="ml-0.5 h-4 w-4 fill-white" />
+                  )}
                 </button>
-              </div>
-            </section>
 
-            {/* RIGHT: Line Chart & Metric Cards */}
-            <div className="lg:col-span-7 flex flex-col gap-4">
-              {/* Head Movement Line Chart Card */}
-              <section className="bg-[#140e29]/85 backdrop-blur-md border border-pink-500/20 rounded-2xl p-5 md:p-6 shadow-[0_0_25px_rgba(236,72,153,0.08)] flex flex-col">
-                {/* Header with Title and Playback Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <h2 className="text-lg font-semibold text-white tracking-wide">
-                    Visualisasi Pergerakan Head
-                  </h2>
+                <button
+                  type="button"
+                  onClick={handleStepForward}
+                  disabled={
+                    !hasSimulated ||
+                    currentStep >= currentResult.sequence.length - 1
+                  }
+                  title="Langkah Berikutnya"
+                  className="dm-btn-outline-glow flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:-translate-y-0.5 hover:border-[#ec008c] hover:bg-[#fff5fa] hover:text-[#ec008c] disabled:pointer-events-none disabled:opacity-40 dark:border-purple-900/50 dark:bg-[#1e153b] dark:text-gray-300 dark:hover:border-pink-400 dark:hover:bg-[#2b1d52] dark:hover:text-pink-200"
+                >
+                  <SkipForward className="h-4 w-4" />
+                </button>
 
-                  {/* Playback Controls */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleStepBack}
-                      disabled={!hasSimulated || currentStep <= 0}
-                      title="Langkah Sebelumnya"
-                      className="w-8 h-8 rounded-lg bg-[#1e153b] border border-purple-900/50 flex items-center justify-center text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
-                    >
-                      <SkipBack className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleTogglePlay}
-                      title={isPlaying ? 'Jeda' : 'Mulai / Lanjutkan'}
-                      className="w-9 h-9 rounded-full bg-pink-500 hover:bg-pink-400 text-white flex items-center justify-center shadow-[0_0_15px_rgba(236,72,153,0.6)] transition active:scale-95 cursor-pointer"
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-4 h-4 fill-white" />
-                      ) : (
-                        <Play className="w-4 h-4 fill-white ml-0.5" />
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleStepForward}
-                      disabled={
-                        !hasSimulated ||
-                        currentStep >= currentResult.sequence.length - 1
-                      }
-                      title="Langkah Berikutnya"
-                      className="w-8 h-8 rounded-lg bg-[#1e153b] border border-purple-900/50 flex items-center justify-center text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition"
-                    >
-                      <SkipForward className="w-4 h-4" />
-                    </button>
-
-                    {/* Speed selector */}
-                    <select
-                      value={playSpeed}
-                      onChange={(e) => setPlaySpeed(Number(e.target.value))}
-                      className="bg-[#1e153b] border border-purple-900/50 text-gray-300 text-xs rounded-lg px-2.5 py-1.5 focus:border-pink-500 focus:outline-none cursor-pointer"
-                    >
-                      <option value="0.5">0.5x</option>
-                      <option value="1">1x</option>
-                      <option value="2">2x</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Line Chart Area */}
-                <div className="h-[280px] sm:h-[300px] w-full">
-                  <Line data={lineChartData} options={lineChartOptions} />
-                </div>
-
-                {/* Live simulation status caption */}
-                <div className="mt-4 pt-3 border-t border-purple-900/30 text-xs text-gray-400 min-h-[32px] flex items-center">
-                  <span>{getStatusMessage()}</span>
-                </div>
-              </section>
-
-              {/* Two Metric Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Total Head Movement (THM) */}
-                <div className="bg-[#140e29]/85 backdrop-blur-md border border-pink-500/20 rounded-2xl p-5 shadow-[0_0_20px_rgba(236,72,153,0.06)] flex flex-col justify-between">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Total Head Movement (THM)
-                  </span>
-                  <div className="my-2">
-                    <span className="text-4xl font-extrabold text-white tracking-tight drop-shadow-sm">
-                      {hasSimulated ? currentResult.thm : 0}
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    {hasSimulated
-                      ? `dari total ${totalTrack} track`
-                      : 'dari total 0 track'}
-                  </span>
-                </div>
-
-                {/* Average Seek Time */}
-                <div className="bg-[#140e29]/85 backdrop-blur-md border border-pink-500/20 rounded-2xl p-5 shadow-[0_0_20px_rgba(236,72,153,0.06)] flex flex-col justify-between">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    Average Seek Time
-                  </span>
-                  <div className="my-2">
-                    <span className="text-4xl font-extrabold text-white tracking-tight drop-shadow-sm">
-                      {hasSimulated
-                        ? currentResult.avgSeek % 1 === 0
-                          ? currentResult.avgSeek
-                          : currentResult.avgSeek.toFixed(2)
-                        : 0}
-                    </span>
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    track per permintaan
-                  </span>
-                </div>
+                <select
+                  value={playSpeed}
+                  onChange={(e) => setPlaySpeed(Number(e.target.value))}
+                  className="cursor-pointer rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 transition-colors hover:border-pink-300 focus:border-[#ec008c] focus:outline-none dark:border-purple-900/50 dark:bg-[#1e153b] dark:text-gray-300 dark:hover:border-pink-500/50"
+                >
+                  <option value="0.5">0.5x</option>
+                  <option value="1">1x</option>
+                  <option value="2">2x</option>
+                </select>
               </div>
             </div>
-          </div>
 
-          {/* Execution Sequence Flow (Interactive step pills) */}
-          {hasSimulated && (
-            <section className="bg-[#140e29]/70 backdrop-blur-md border border-pink-500/15 rounded-2xl p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-gray-300">
-                  Urutan Eksekusi Head ({selectedAlgorithm}):
+            <div className="min-h-[220px] w-full flex-1">
+              <Line data={lineChartData} options={lineChartOptions} />
+            </div>
+
+            {/* Compact THM & Average Seek Time Bar */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-slate-200/70 pt-3 text-xs dark:border-purple-900/30">
+              <div className="flex items-baseline gap-2">
+                <span className="font-medium text-slate-500 dark:text-gray-400">
+                  Total Head Movement:
                 </span>
-                <span className="text-xs text-pink-400">
-                  Langkah {currentStep} / {currentResult.sequence.length - 1}
+                <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  {hasSimulated ? currentResult.thm : 0}
+                </span>
+                <span className="text-slate-400 dark:text-gray-500">track</span>
+              </div>
+
+              <div className="flex items-baseline gap-2">
+                <span className="font-medium text-slate-500 dark:text-gray-400">
+                  Average Seek Time:
+                </span>
+                <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  {formattedAvgSeek}
+                </span>
+                <span className="text-slate-400 dark:text-gray-500">
+                  track/req
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto py-1">
-                {currentResult.sequence.map((track, idx) => {
+            </div>
+          </section>
+        </div>
+
+        {/* BOTTOM GRID: Progressive Vertical Step Timeline (Left) & All Algorithms Comparison (Right) */}
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-12">
+          {/* LEFT: Progressive Step-by-Step Timeline / Log List */}
+          <section
+            className={`flex h-full flex-col justify-between gap-3 rounded-2xl p-5 transition-all duration-300 hover:border-pink-500/40 md:p-6 lg:col-span-5 ${CARD_SURFACE_CLASSES}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-bold tracking-wide text-slate-900 dark:text-white">
+                Urutan Eksekusi ({selectedAlgorithm})
+              </h2>
+              <span className="rounded-full bg-pink-50 px-2.5 py-0.5 text-xs font-semibold text-[#ec008c] dark:bg-pink-500/15 dark:text-pink-300">
+                Langkah {hasSimulated ? currentStep : 0} /{" "}
+                {hasSimulated ? currentResult.sequence.length - 1 : 0}
+              </span>
+            </div>
+
+            {hasSimulated ? (
+              <div
+                ref={stepListRef}
+                className="relative max-h-[250px] flex-1 space-y-1.5 overflow-y-auto pr-1"
+              >
+                {visibleSequence.map((track, idx) => {
                   const isActive = idx === currentStep;
-                  const isPast = idx < currentStep;
+                  const stepDetail =
+                    idx > 0 ? currentResult.seekSteps[idx - 1] : null;
+
                   return (
-                    <React.Fragment key={idx}>
-                      <button
-                        onClick={() => {
-                          setIsPlaying(false);
-                          setCurrentStep(idx);
-                        }}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-mono font-medium transition cursor-pointer ${
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setCurrentStep(idx);
+                      }}
+                      className={`group flex w-full cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-left transition-all duration-200 ${
+                        isActive
+                          ? "border-[#ec008c] bg-[#ec008c] text-white shadow-sm shadow-pink-500/30"
+                          : "border-pink-200/90 bg-pink-50/70 text-slate-800 hover:border-[#ec008c] hover:bg-pink-50 dark:border-pink-500/25 dark:bg-[#20163d]/90 dark:text-gray-200 dark:hover:border-pink-400 dark:hover:bg-[#2a1d50]"
+                      }`}
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className={`inline-flex h-6 min-w-[1.75rem] shrink-0 items-center justify-center rounded-md px-1.5 font-mono text-[11px] font-bold ${
+                            isActive
+                              ? "bg-white/20 text-white"
+                              : "bg-pink-100 text-[#ec008c] dark:bg-pink-500/20 dark:text-pink-300"
+                          }`}
+                        >
+                          {idx === 0 ? "Start" : `#${idx}`}
+                        </span>
+
+                        {idx === 0 ? (
+                          <div className="flex items-center gap-1.5 truncate text-xs font-semibold">
+                            <Flag
+                              className={`h-3.5 w-3.5 shrink-0 ${
+                                isActive
+                                  ? "text-white"
+                                  : "text-sky-500 dark:text-sky-400"
+                              }`}
+                            />
+                            <span className="truncate">
+                              Posisi Awal: Track {track}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+                            <span className="font-mono font-semibold">
+                              {stepDetail?.from}
+                            </span>
+                            <ArrowRight
+                              className={`h-3 w-3 shrink-0 ${
+                                isActive
+                                  ? "text-pink-100"
+                                  : "text-slate-400 dark:text-gray-500"
+                              }`}
+                            />
+                            <span className="font-mono font-bold">{track}</span>
+
+                            {stepDetail?.isJump && (
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  isActive
+                                    ? "bg-white/20 text-white"
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                                }`}
+                              >
+                                Lompatan
+                              </span>
+                            )}
+                            {stepDetail?.isBoundary && (
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  isActive
+                                    ? "bg-white/20 text-white"
+                                    : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
+                                }`}
+                              >
+                                Batas Disk
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <span
+                        className={`ml-2 shrink-0 font-mono text-[11px] font-semibold ${
                           isActive
-                            ? 'bg-pink-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.7)] scale-105'
-                            : isPast
-                            ? 'bg-[#221844] text-pink-300 border border-pink-500/30'
-                            : 'bg-[#181230] text-gray-400 border border-purple-900/30'
+                            ? "text-white"
+                            : "text-[#ec008c] dark:text-pink-300"
                         }`}
                       >
-                        {idx === 0 ? `Start: ${track}` : track}
-                      </button>
-                      {idx < currentResult.sequence.length - 1 && (
-                        <span className="text-gray-600 text-xs">→</span>
-                      )}
-                    </React.Fragment>
+                        {idx === 0
+                          ? "0 track"
+                          : `+${stepDetail?.distance ?? 0}`}
+                      </span>
+                    </button>
                   );
                 })}
               </div>
-            </section>
-          )}
+            ) : (
+              <div className="flex min-h-[220px] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200/80 bg-slate-50/60 p-4 text-center text-xs text-slate-400 dark:border-purple-900/40 dark:bg-[#181230]/50 dark:text-gray-500">
+                Jalankan simulasi untuk melihat rincian langkah pergerakan head
+                disk.
+              </div>
+            )}
 
-          {/* BOTTOM: All Algorithms Comparison Bar Chart */}
-          <section className="bg-[#140e29]/85 backdrop-blur-md border border-pink-500/20 rounded-2xl p-5 md:p-6 shadow-[0_0_25px_rgba(236,72,153,0.08)] flex flex-col gap-4">
-            {/* Header with Title and Best Performer Badge */}
+            <p className="border-t border-slate-200/70 pt-2 text-xs leading-relaxed text-slate-500 dark:border-purple-900/30 dark:text-gray-500">
+              Langkah muncul bertahap mengikuti jalannya simulasi. Klik baris
+              untuk kembali ke langkah sebelumnya.
+            </p>
+          </section>
+
+          {/* RIGHT: All Algorithms Comparison Bar Chart (Hanya muncul setelah simulasi selesai) */}
+          <section
+            className={`flex h-full flex-col justify-between gap-4 rounded-2xl p-5 transition-all duration-300 hover:border-pink-500/40 md:p-6 lg:col-span-7 ${CARD_SURFACE_CLASSES}`}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-white tracking-wide">
+              <h2 className="text-base font-bold tracking-wide text-slate-900 dark:text-white">
                 Perbandingan Semua Algoritma
               </h2>
 
-              {/* Best Performer Badge */}
-              <div className="flex items-center gap-2 bg-[#25133d] border border-pink-500/40 text-pink-200 text-xs md:text-sm font-medium px-3.5 py-1.5 rounded-full shadow-[0_0_15px_rgba(236,72,153,0.25)]">
-                <Trophy className="w-4 h-4 text-amber-300 shrink-0" />
-                <span>
-                  Best Performer: <strong>{bestAlgo.algorithm}</strong> (THM{' '}
-                  <strong>{bestAlgo.thm}</strong>) - hemat{' '}
-                  <strong>{computedAll.savingsFromFCFS}%</strong> dari FCFS
-                </span>
+              {isSimulationCompleted && (
+                <div className="flex items-center gap-2 rounded-full border border-pink-200 bg-pink-50 px-3.5 py-1.5 text-xs font-medium text-[#ec008c] transition-transform duration-200 hover:scale-[1.02] dark:border-pink-500/40 dark:bg-[#25133d] dark:text-pink-200">
+                  <Trophy className="h-4 w-4 shrink-0 text-amber-500 dark:text-amber-300" />
+                  <span>
+                    Best: <strong>{bestAlgo.algorithm}</strong> (THM{" "}
+                    <strong>{bestAlgo.thm}</strong>) - hemat{" "}
+                    <strong>{computedAll.savingsFromFCFS}%</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {isSimulationCompleted ? (
+              <div className="min-h-[220px] w-full flex-1">
+                <Bar data={barChartData} options={barChartOptions} />
               </div>
-            </div>
+            ) : (
+              <div className="flex min-h-[220px] w-full flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200/80 bg-slate-50/60 p-6 text-center dark:border-purple-900/40 dark:bg-[#181230]/50">
+                <BarChart3 className="h-7 w-7 text-slate-300 dark:text-purple-500/50" />
+                <p className="max-w-xs text-xs leading-relaxed text-slate-400 dark:text-gray-500">
+                  {hasSimulated
+                    ? "Menunggu proses simulasi selesai untuk menampilkan grafik perbandingan algoritma..."
+                    : "Hasil perbandingan semua algoritma akan muncul setelah simulasi selesai dijalankan."}
+                </p>
+              </div>
+            )}
 
-            {/* Bar Chart Canvas */}
-            <div className="h-[260px] md:h-[280px] w-full">
-              <Bar data={barChartData} options={barChartOptions} />
-            </div>
-
-            {/* Footnote matching screenshot */}
-            <p className="text-xs text-gray-500 leading-relaxed pt-2 border-t border-purple-900/30">
-              THM dihitung pada antrean dan arah yang sama. Lompatan C-SCAN dari ujung ke ujung dihitung sebagai gerakan head. SCAN dan C-SCAN menuju ujung disk hanya jika masih ada permintaan di sisi seberang.
+            <p className="border-t border-slate-200/70 pt-2 text-xs leading-relaxed text-slate-500 dark:border-purple-900/30 dark:text-gray-500">
+              THM dihitung pada antrean yang sama. Lompatan C-SCAN dari ujung ke
+              ujung dihitung sebagai gerakan head.
             </p>
           </section>
-        </main>
-      </div>
-
-      {/* Footer matching Figma Design */}
-      <footer className="relative z-10 w-full mt-12 border-t border-purple-900/30 bg-[#090615]/80 backdrop-blur-md py-10 px-6 md:px-12">
-        <div className="max-w-[1600px] mx-auto flex flex-col gap-4">
-          <div>
-            <h3 className="text-xl md:text-2xl font-bold tracking-tight text-white">
-              DiskMotion Visualizer
-            </h3>
-            <p className="text-sm text-gray-400 mt-1 max-w-xl">
-              Interactive Disk Scheduling Simulator & Learning Hub untuk mempermudah pemahaman Operating System Concepts.
-            </p>
-          </div>
-          <div className="pt-4 border-t border-purple-900/20 text-xs text-gray-500">
-            © 2026 DiskMotion Visualizer • Interactive OS Lab
-          </div>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
