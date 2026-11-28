@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Disc, Moon, Sun, Menu, X } from "lucide-react";
+import { Moon, Sun, Menu, X, Play, Gamepad2 } from "lucide-react";
+import logo from "../assets/logo.svg";
 
 const SECTION_ITEMS = [
   { id: "home", label: "Home" },
@@ -9,43 +10,85 @@ const SECTION_ITEMS = [
   { id: "algorithm", label: "Algorithm" },
 ];
 
-const ROUTE_ITEMS = [
-  { path: "/visualisasi", label: "Visualizer" },
-  { path: "/minigame", label: "Mini Game" },
-];
-
 function Navbar({ isDarkMode, onToggleDarkMode }) {
   const [activeSection, setActiveSection] = useState("home");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const isManualScrollRef = useRef(false);
+  const manualScrollTimerRef = useRef(null);
+
   const location = useLocation();
   const navigate = useNavigate();
+
+  const isVisualizerPage = location.pathname === "/visualisasi";
+
+  const ctaConfig = isVisualizerPage
+    ? {
+        to: "/minigame",
+        label: "Mulai Mini Game",
+        Icon: Gamepad2,
+      }
+    : {
+        to: "/visualisasi",
+        label: "Mulai Simulasi",
+        Icon: Play,
+      };
 
   useEffect(() => {
     if (location.pathname !== "/") return;
 
     const handleScroll = () => {
-      const scrollPosition = window.scrollY + 140;
+      if (isManualScrollRef.current) return;
+
+      if (window.scrollY < 80) {
+        setActiveSection("home");
+        return;
+      }
+
+      const triggerLine = window.innerHeight * 0.35;
+      let currentId = SECTION_ITEMS[0].id;
 
       for (const item of SECTION_ITEMS) {
         const element = document.getElementById(item.id);
         if (element) {
-          const offsetTop = element.offsetTop;
-          const offsetHeight = element.offsetHeight;
-          if (
-            scrollPosition >= offsetTop &&
-            scrollPosition < offsetTop + offsetHeight
-          ) {
-            setActiveSection(item.id);
-            break;
+          const rect = element.getBoundingClientRect();
+          if (rect.top <= triggerLine) {
+            currentId = item.id;
           }
         }
       }
+
+      setActiveSection(currentId);
     };
 
+    handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, [location.pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (manualScrollTimerRef.current) {
+        clearTimeout(manualScrollTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scrollToSection = (sectionId) => {
+    const element = document.getElementById(sectionId);
+    if (!element) return;
+
+    isManualScrollRef.current = true;
+    if (manualScrollTimerRef.current) {
+      clearTimeout(manualScrollTimerRef.current);
+    }
+
+    element.scrollIntoView({ behavior: "smooth" });
+
+    manualScrollTimerRef.current = setTimeout(() => {
+      isManualScrollRef.current = false;
+    }, 800);
+  };
 
   const handleSectionClick = (sectionId) => {
     setActiveSection(sectionId);
@@ -54,16 +97,14 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
     if (location.pathname !== "/") {
       navigate("/");
       setTimeout(() => {
-        document
-          .getElementById(sectionId)
-          ?.scrollIntoView({ behavior: "smooth" });
+        scrollToSection(sectionId);
       }, 100);
     } else {
-      document
-        .getElementById(sectionId)
-        ?.scrollIntoView({ behavior: "smooth" });
+      scrollToSection(sectionId);
     }
   };
+
+  const CtaIcon = ctaConfig.Icon;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-200/70 bg-[#f8f9fb]/85 backdrop-blur-md transition-colors duration-300 dark:border-slate-800/80 dark:bg-slate-950/85">
@@ -73,11 +114,15 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
           <Link
             to="/"
             onClick={() => handleSectionClick("home")}
-            className="flex items-center gap-2.5"
+            className="flex items-center gap-2.5 transition-opacity hover:opacity-85"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#ec008c] text-white shadow-sm shadow-pink-500/20">
-              <Disc className="h-4 w-4" />
-            </div>
+            <img
+              src={logo}
+              alt="Disk Motion Logo"
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-lg object-contain"
+            />
             <span className="text-sm font-extrabold tracking-tight text-slate-900 dark:text-white">
               Disk Motion
             </span>
@@ -87,7 +132,7 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
         {/* KOLOM 2: MENU TENGAH */}
         <nav
           aria-label="Main navigation"
-          className="hidden items-center justify-center gap-1.5 justify-self-center md:flex"
+          className="hidden items-center justify-center gap-2 justify-self-center md:flex"
         >
           {SECTION_ITEMS.map((item) => {
             const isActive =
@@ -97,48 +142,36 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
                 key={item.id}
                 type="button"
                 onClick={() => handleSectionClick(item.id)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
                   isActive
                     ? "bg-[#ec008c] text-white shadow-sm shadow-pink-500/25"
-                    : "text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                    : "text-slate-600 hover:text-[#ec008c] dark:text-slate-300 dark:hover:text-pink-400"
                 }`}
               >
                 {item.label}
               </button>
             );
           })}
-
-          <span
-            className="mx-1 h-4 w-px bg-slate-300 dark:bg-slate-700"
-            aria-hidden="true"
-          />
-
-          {ROUTE_ITEMS.map((route) => {
-            const isActive = location.pathname === route.path;
-            return (
-              <Link
-                key={route.path}
-                to={route.path}
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                  isActive
-                    ? "bg-[#ec008c] text-white shadow-sm shadow-pink-500/25"
-                    : "text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-                }`}
-              >
-                {route.label}
-              </Link>
-            );
-          })}
         </nav>
 
-        {/* KOLOM 3: THEME ICON & MOBILE TOGGLE */}
-        <div className="flex items-center gap-2 justify-self-end">
+        {/* KOLOM 3: CTA BUTTON, THEME ICON & MOBILE TOGGLE */}
+        <div className="flex items-center gap-2.5 justify-self-end">
+          <Link
+            to={ctaConfig.to}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="dm-btn-shimmer inline-flex items-center gap-1.5 rounded-full bg-[#ec008c] px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-pink-500/25 hover:-translate-y-0.5 hover:bg-[#ff149d] active:translate-y-0"
+          >
+            <CtaIcon
+              className={`h-3.5 w-3.5 ${!isVisualizerPage ? "fill-current" : ""}`}
+            />
+            <span>{ctaConfig.label}</span>
+          </Link>
+
           <button
             type="button"
             onClick={onToggleDarkMode}
             aria-label="Toggle theme"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-pink-100/70 text-[#ec008c] transition-colors hover:bg-pink-100 dark:bg-pink-500/15 dark:text-pink-400 dark:hover:bg-pink-500/25"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pink-100/70 text-[#ec008c] transition-colors hover:bg-pink-100 dark:bg-pink-500/15 dark:text-pink-400 dark:hover:bg-pink-500/25"
           >
             {isDarkMode ? (
               <Sun className="h-4 w-4" />
@@ -151,7 +184,7 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
             type="button"
             onClick={() => setIsMobileMenuOpen((prev) => !prev)}
             aria-label="Toggle menu"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-200/60 dark:text-slate-300 dark:hover:bg-slate-800 md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 transition-colors hover:text-[#ec008c] dark:text-slate-300 dark:hover:text-pink-400 md:hidden"
           >
             {isMobileMenuOpen ? (
               <X className="h-5 w-5" />
@@ -177,29 +210,11 @@ function Navbar({ isDarkMode, onToggleDarkMode }) {
                   className={`rounded-xl px-4 py-2.5 text-left text-xs font-semibold transition-colors ${
                     isActive
                       ? "bg-[#ec008c] text-white"
-                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                      : "text-slate-600 hover:text-[#ec008c] dark:text-slate-300 dark:hover:text-pink-400"
                   }`}
                 >
                   {item.label}
                 </button>
-              );
-            })}
-            <hr className="my-1 border-slate-200 dark:border-slate-800" />
-            {ROUTE_ITEMS.map((route) => {
-              const isActive = location.pathname === route.path;
-              return (
-                <Link
-                  key={route.path}
-                  to={route.path}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={`rounded-xl px-4 py-2.5 text-left text-xs font-semibold transition-colors ${
-                    isActive
-                      ? "bg-[#ec008c] text-white"
-                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                  }`}
-                >
-                  {route.label}
-                </Link>
               );
             })}
           </div>

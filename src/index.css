@@ -13,9 +13,466 @@
       Roboto,
       sans-serif;
     scroll-behavior: smooth;
+    background-color: #f8f9fb;
+    color: #0f172a;
+    overscroll-behavior-y: none;
+    overscroll-behavior-x: auto;
+    overflow-x: hidden;
+    overflow-x: clip;
+    width: 100%;
+    min-height: 100%;
+  }
+
+  html.dark {
+    background-color: #020617;
+    color: #f1f5f9;
   }
 
   body {
     margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100dvh;
+    background-color: #f8f9fb;
+    overscroll-behavior-y: none;
+    overscroll-behavior-x: auto;
+    overflow-x: hidden;
+    overflow-x: clip;
+  }
+
+  html.dark body {
+    background-color: #020617;
+  }
+
+  #root {
+    width: 100%;
+    min-height: 100dvh;
+    background-color: inherit;
+    overflow-x: hidden;
+    overflow-x: clip;
+  }
+
+  /* Kunci scroll vertikal penuh pada viewport saat berada di halaman MiniGame (desktop) */
+  @media (min-width: 1024px) {
+    html.dm-lock-viewport,
+    html.dm-lock-viewport body {
+      height: 100dvh;
+      overflow-y: hidden;
+    }
+  }
+}
+
+/* =========================================================
+   HERO FULL-WIDTH 3D GRID, PARTICLES & FLOATING ICON BOXES
+   ========================================================= */
+.dm-hero-glow {
+  background:
+    radial-gradient(
+      ellipse 60% 45% at 50% 42%,
+      rgba(236, 0, 140, 0.14) 0%,
+      rgba(236, 0, 140, 0.05) 52%,
+      transparent 78%
+    ),
+    linear-gradient(to top, rgba(236, 0, 140, 0.12) 0%, transparent 55%);
+}
+
+.dark .dm-hero-glow {
+  background:
+    radial-gradient(
+      ellipse 62% 48% at 50% 42%,
+      rgba(236, 0, 140, 0.24) 0%,
+      rgba(236, 0, 140, 0.08) 50%,
+      transparent 78%
+    ),
+    linear-gradient(to top, rgba(236, 0, 140, 0.22) 0%, transparent 58%);
+}
+
+.dm-hero-perspective {
+  position: absolute;
+  inset: 0;
+  perspective: 560px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  contain: strict;
+}
+
+.dm-hero-grid {
+  width: 240%;
+  min-width: 1920px;
+  height: 76%;
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  transform: rotateX(62deg) translateY(8%) translateZ(0);
+  transform-origin: center bottom;
+  background-image:
+    linear-gradient(to right, rgba(236, 0, 140, 0.28) 1.5px, transparent 1.5px),
+    linear-gradient(to bottom, rgba(236, 0, 140, 0.28) 1.5px, transparent 1.5px);
+  background-size: calc(100% / 14) calc(100% / 5);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 28%,
+    #000 62%,
+    #000 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 28%,
+    #000 62%,
+    #000 100%
+  );
+}
+
+.dark .dm-hero-grid {
+  background-image:
+    linear-gradient(
+      to right,
+      rgba(244, 114, 182, 0.34) 1.5px,
+      transparent 1.5px
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(244, 114, 182, 0.34) 1.5px,
+      transparent 1.5px
+    );
+}
+
+.dm-grid-pulse {
+  background: rgba(236, 0, 140, 0.24);
+  border: 1.5px solid rgba(236, 0, 140, 0.72);
+  opacity: 0;
+  will-change: opacity;
+  animation: dm-tile-fade 4s ease-in-out infinite;
+}
+
+.dark .dm-grid-pulse {
+  background: rgba(236, 0, 140, 0.34);
+  border-color: rgba(244, 114, 182, 0.8);
+}
+
+@keyframes dm-tile-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  45%,
+  55% {
+    opacity: 1;
+  }
+}
+
+/* Floating White Particles */
+.dm-hero-particle {
+  position: absolute;
+  border-radius: 9999px;
+  background-color: #ec008c;
+  box-shadow: 0 0 8px rgba(236, 0, 140, 0.65);
+  opacity: var(--p-opacity, 0.6);
+  will-change: transform, opacity;
+  animation: dm-particle-float 7s ease-in-out infinite;
+}
+
+.dark .dm-hero-particle {
+  background-color: #ffffff;
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.9),
+    0 0 16px rgba(244, 114, 182, 0.7);
+}
+
+@keyframes dm-particle-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: var(--p-opacity, 0.6);
+  }
+  50% {
+    transform: translate3d(4px, -16px, 0) scale(1.15);
+    opacity: calc(var(--p-opacity, 0.6) * 0.45);
+  }
+}
+
+/* Floating 2D Glass Icon Boxes (Non-Rotating, Gentle Float + Tilt) */
+.dm-float-badge {
+  position: absolute;
+  will-change: transform;
+  animation: dm-float 6.5s ease-in-out infinite;
+}
+
+.dm-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.88) 0%,
+    rgba(252, 231, 243, 0.78) 100%
+  );
+  border: 1.5px solid rgba(236, 0, 140, 0.45);
+  box-shadow:
+    0 12px 28px -4px rgba(236, 0, 140, 0.22),
+    0 0 20px rgba(236, 0, 140, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dark .dm-icon-box {
+  background: linear-gradient(
+    145deg,
+    rgba(236, 0, 140, 0.26) 0%,
+    rgba(88, 28, 88, 0.34) 100%
+  );
+  border: 1.5px solid rgba(244, 114, 182, 0.55);
+  box-shadow:
+    0 14px 32px -4px rgba(236, 0, 140, 0.38),
+    0 0 26px rgba(236, 0, 140, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+@keyframes dm-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0);
+  }
+}
+
+/* =========================================================
+   SECONDARY BUTTON (BORDER CHASE + NEON OUTLINE GLOW)
+   ========================================================= */
+.dm-btn-chase {
+  position: relative;
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 9999px;
+  padding: 2px;
+  background: rgba(236, 0, 140, 0.32);
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s ease,
+    background-color 0.28s ease;
+}
+
+.dark .dm-btn-chase {
+  background: rgba(244, 114, 182, 0.38);
+}
+
+.dm-btn-chase:hover {
+  background: #ec008c;
+  box-shadow:
+    0 0 0 1px rgba(236, 0, 140, 0.55),
+    0 0 18px rgba(236, 0, 140, 0.35),
+    0 0 32px rgba(236, 0, 140, 0.16);
+}
+
+.dark .dm-btn-chase:hover {
+  background: #f472b6;
+  box-shadow:
+    0 0 0 1px rgba(244, 114, 182, 0.8),
+    0 0 22px rgba(236, 0, 140, 0.65),
+    0 0 40px rgba(236, 0, 140, 0.3);
+}
+
+.dm-btn-chase::before {
+  content: "";
+  position: absolute;
+  inset: -120%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 62%,
+    #ec008c 80%,
+    #f472b6 92%,
+    transparent 100%
+  );
+  will-change: transform;
+  animation: dm-chase-rotate 3.2s linear infinite;
+}
+
+.dm-btn-chase > a {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes dm-chase-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* =========================================================
+   AMBIENT CARD GLOW & NEON OUTLINE BUTTON HOVER (TANPA SWEEP)
+   ========================================================= */
+.dm-hover-card {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.3s ease,
+    box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dm-hover-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 0%,
+    rgba(236, 0, 140, 0.09) 0%,
+    rgba(255, 42, 133, 0.03) 60%,
+    transparent 100%
+  );
+  transition: opacity 0.32s ease;
+}
+
+.dark .dm-hover-card::before {
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 0%,
+    rgba(236, 0, 140, 0.22) 0%,
+    rgba(244, 114, 182, 0.07) 60%,
+    transparent 100%
+  );
+}
+
+.dm-hover-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16%;
+  right: 16%;
+  height: 2.5px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #ec008c,
+    #ff2a85,
+    transparent
+  );
+  transform: scaleX(0);
+  opacity: 0;
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease;
+}
+
+.dm-hover-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(236, 0, 140, 0.42);
+  box-shadow:
+    0 12px 26px -8px rgba(236, 0, 140, 0.16),
+    0 0 18px rgba(236, 0, 140, 0.07);
+}
+
+.dark .dm-hover-card:hover {
+  border-color: rgba(244, 114, 182, 0.55);
+  box-shadow:
+    0 14px 32px -8px rgba(236, 0, 140, 0.32),
+    0 0 24px rgba(236, 0, 140, 0.16);
+}
+
+.dm-hover-card:hover::before {
+  opacity: 1;
+}
+
+.dm-hover-card:hover::after {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+/* Primary Button: Neon Outline Glow + Bagian Dalam Lebih Cerah (Tanpa Shimmer Sweep) */
+.dm-btn-shimmer {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.28s ease,
+    border-color 0.28s ease,
+    filter 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.dm-btn-shimmer:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    0 0 0 1.5px rgba(255, 110, 186, 0.85),
+    0 0 18px rgba(236, 0, 140, 0.42),
+    0 0 32px rgba(236, 0, 140, 0.2);
+}
+
+.dark .dm-btn-shimmer:hover {
+  filter: brightness(1.1);
+  box-shadow:
+    0 0 0 1.5px rgba(244, 114, 182, 0.9),
+    0 0 24px rgba(236, 0, 140, 0.72),
+    0 0 42px rgba(236, 0, 140, 0.35);
+}
+
+/* Secondary / Outline Button: Neon Outline Glow + Latar Dalam Lebih Cerah */
+.dm-btn-outline-glow {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.28s ease,
+    border-color 0.28s ease,
+    color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.dm-btn-outline-glow:hover {
+  box-shadow:
+    0 0 0 1px rgba(236, 0, 140, 0.55),
+    0 0 16px rgba(236, 0, 140, 0.28);
+}
+
+.dark .dm-btn-outline-glow:hover {
+  box-shadow:
+    0 0 0 1px rgba(244, 114, 182, 0.75),
+    0 0 20px rgba(236, 0, 140, 0.5);
+}
+
+/* Tombol Putih pada CTA Banner: Neon Outline Putih-Pink + Bagian Dalam Cerah */
+.dm-btn-shimmer-light:hover {
+  filter: brightness(1.03);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 22px rgba(255, 255, 255, 0.7),
+    0 0 36px rgba(255, 182, 222, 0.45);
+}
+
+.dark .dm-btn-shimmer-light:hover {
+  filter: brightness(1.04);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 26px rgba(255, 255, 255, 0.75),
+    0 0 42px rgba(236, 0, 140, 0.5);
+}
+
+/* Jeda otomatis semua animasi Hero saat keluar dari viewport */
+.dm-paused .dm-grid-pulse,
+.dm-paused .dm-hero-particle,
+.dm-paused .dm-float-badge,
+.dm-paused.dm-btn-chase::before {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-grid-pulse,
+  .dm-hero-particle,
+  .dm-float-badge,
+  .dm-btn-chase::before,
+  .dm-hover-card,
+  .dm-btn-shimmer,
+  .dm-btn-outline-glow {
+    animation: none;
+    transition: none;
   }
 }

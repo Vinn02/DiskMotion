@@ -31,18 +31,49 @@ const colOf = (q, dark) => {
   return r > 0.5 ? "#16a34a" : r > 0.25 ? "#d97706" : "#dc2626";
 };
 
-const TOP = 44;
+/**
+ * Menghitung batas horizontal area tengah berdasarkan bounding box nyata
+ * dari .dtc-center-zone ditambah ruang aman (28px) untuk kotak head (13px),
+ * perpanjangan garis rel (14px), dan label teks "T0"/"T199".
+ */
+function getPlayfieldBounds(W, safeZone) {
+  if (safeZone && safeZone.right - safeZone.left > 140) {
+    const innerPad = 28;
+    const leftSafe = safeZone.left + innerPad;
+    const rightSafe = safeZone.right - innerPad;
 
-export function draw(X, S, { W, H, dark, algo }) {
-  const LN = H - 54;
+    return {
+      centerX: (leftSafe + rightSafe) / 2,
+      spanW: Math.max(120, rightSafe - leftSafe),
+      hudLeftX: safeZone.left + 8,
+      hudRightX: safeZone.right - 8,
+    };
+  }
+
+  const sideMargin = Math.min(48, Math.max(24, W * 0.065));
+  return {
+    centerX: W / 2,
+    spanW: W - sideMargin * 2,
+    hudLeftX: 16,
+    hudRightX: W - 16,
+  };
+}
+
+const TOP = 48;
+
+export function draw(X, S, { W, H, dark, algo, safeZone }) {
+  const LN = H - 56;
   const now = performance.now();
   const pal = getThemePalette(dark);
+  const { centerX, spanW, hudLeftX, hudRightX } = getPlayfieldBounds(
+    W,
+    safeZone,
+  );
 
   const proj = (tr, p) => {
     const s = 0.32 + 0.68 * p;
-    const sideMargin = Math.min(48, Math.max(16, W * 0.055));
     return {
-      x: W / 2 + (tr / (S.N - 1) - 0.5) * (W - sideMargin * 2) * s,
+      x: centerX + (tr / (S.N - 1) - 0.5) * spanW * s,
       y: TOP + (LN - TOP) * p,
       s,
     };
@@ -216,14 +247,14 @@ export function draw(X, S, { W, H, dark, algo }) {
     ALG[algo] +
       (algo >= 3 ? (S.dir > 0 ? "  →" : "  ←") : "") +
       (S.paused ? " · PAUSED" : ""),
-    16,
+    hudLeftX,
     26,
   );
 
   X.textAlign = "right";
   X.fillStyle = pal.hudSub;
   X.font = "10px monospace";
-  X.fillText("▼ REQUEST INCOMING", W - 16, 26);
+  X.fillText("▼ REQUEST INCOMING", hudRightX, 26);
 
   X.restore();
 }

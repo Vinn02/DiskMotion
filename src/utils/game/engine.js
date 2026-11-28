@@ -47,6 +47,7 @@ export function newState(settings = DEFAULT_SETTINGS) {
     score: 0,
     mult: 1,
     streak: 0,
+    maxStreak: 0,
     thm: 0,
     served: 0,
     starved: 0,
@@ -69,6 +70,10 @@ export function newState(settings = DEFAULT_SETTINGS) {
     overReason: "",
     id: 0,
     svc: null,
+    usedAlgos: new Set(),
+    clutchHeal: false,
+    zeroSeekCount: 0,
+    vipRescued: 0,
   };
 }
 
@@ -144,7 +149,13 @@ function finish(S, q, sfx) {
   S.fx.push({ tr: q.track, a: 1 });
   S.served++;
   S.wait += S.t - q.born;
+
+  if (!q.kit && q.life < 1.5) {
+    S.vipRescued++;
+  }
+
   if (q.kit) {
+    if (S.health < 40) S.clutchHeal = true;
     S.health = Math.min(100, S.health + 12);
     pop(S, q.track, "+12 HP", "#4ade80");
     burst(S, q.track, "#4ade80", 18);
@@ -154,9 +165,11 @@ function finish(S, q, sfx) {
   const pts = 10 * S.mult;
   S.score += pts;
   S.streak++;
+  if (S.streak > S.maxStreak) S.maxStreak = S.streak;
   if (S.streak % 5 === 0) S.mult = Math.min(5, S.mult + 1);
   pop(S, q.track, "+" + pts, "#ec4899");
   burst(S, q.track, "#f472b6", 12);
+  sfx.beep(520 + S.mult * 45, 0.06);
 }
 
 function endGame(S, reason) {
@@ -168,6 +181,7 @@ function endGame(S, reason) {
 export function update(S, rawDt, algo, speedMul, sfx) {
   const dt = rawDt * speedMul;
   S.t += dt;
+  S.usedAlgos.add(algo);
 
   let rate = S.rate;
   if (S.mode === "endless") rate = Math.min(2.2, S.rate + S.t * 0.008);
@@ -214,6 +228,9 @@ export function update(S, rawDt, algo, speedMul, sfx) {
     const tg = pick(S, algo);
     if (tg) {
       const d = tg.track - S.head;
+      if (Math.abs(d) < 1e-6) {
+        S.zeroSeekCount++;
+      }
       const mv = Math.min(Math.abs(d), S.N * 0.22 * dt);
       S.head += Math.sign(d) * mv;
       S.thm += mv;

@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Disc } from "lucide-react";
+import logo from "../assets/logo.svg";
 
 const FOOTER_LINKS = [
   { id: "home", label: "Home" },
@@ -47,18 +47,20 @@ function Footer() {
           </p>
         </div>
 
-        <hr className="my-8 border-slate-300/70 dark:border-slate-800" />
-
-        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <div className="mt-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <Link
             to="/"
             onClick={() => handleFooterNav("home")}
-            className="flex items-center gap-2.5"
+            className="group flex items-center gap-2.5"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#ec008c] text-white">
-              <Disc className="h-4 w-4" />
-            </div>
-            <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+            <img
+              src={logo}
+              alt="Disk Motion Logo"
+              width={28}
+              height={28}
+              className="h-7 w-7 rounded-lg object-contain transition-transform duration-300 group-hover:scale-105"
+            />
+            <span className="text-sm font-extrabold text-slate-900 transition-colors group-hover:text-[#ec008c] dark:text-white dark:group-hover:text-pink-400">
               Disk Motion
             </span>
           </Link>
@@ -72,7 +74,7 @@ function Footer() {
                 key={item.id}
                 type="button"
                 onClick={() => handleFooterNav(item.id)}
-                className="transition-colors hover:text-[#ec008c] dark:hover:text-pink-400"
+                className="transition-all duration-200 hover:-translate-y-0.5 hover:text-[#ec008c] dark:hover:text-pink-400"
               >
                 {item.label}
               </button>
@@ -80,7 +82,9 @@ function Footer() {
           </nav>
         </div>
 
-        <p className="mt-6 text-[11px] text-slate-400 dark:text-slate-500">
+        <hr className="my-6 border-slate-300/70 dark:border-slate-800" />
+
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
           © 2026 Disk Motion. All rights reserved.
         </p>
       </div>

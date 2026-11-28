@@ -1,12 +1,27 @@
 <!doctype html>
-<html lang="id" class="scroll-smooth">
+<html
+  lang="id"
+  class="dark"
+  style="color-scheme: dark; background-color: #020617"
+>
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Disk Motion - Disk Scheduling Visualizer</title>
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#020617" />
+    <title>DiskMotion — Disk Scheduling Visualizer & MiniGame</title>
+    <style>
+      html,
+      body,
+      #root {
+        background-color: #020617;
+        color: #f1f5f9;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
   </head>
-  <body class="bg-[#f8f9fb] text-slate-900 antialiased">
+  <body class="bg-slate-950 text-slate-100 antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

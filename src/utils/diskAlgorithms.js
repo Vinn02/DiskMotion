@@ -19,14 +19,14 @@ export const ALGORITHM_DESCRIPTIONS = {
   SCAN: {
     title: "SCAN - Elevator Algorithm",
     description:
-      "Head bergerak ke satu arah melayani seluruh permintaan hingga mencapai ujung track (jika masih ada permintaan di sisi seberang), lalu berbalik arah.",
+      "Head bergerak menuju ujung track tertinggi melayani seluruh permintaan di jalurnya, lalu berbalik arah melayani sisa permintaan di sisi seberang.",
     characteristic:
       "Karakteristik: Mencegah starvation dan memberikan waktu tunggu yang lebih konsisten dibanding SSTF.",
   },
   "C-SCAN": {
     title: "C-SCAN - Circular SCAN",
     description:
-      "Mirip dengan SCAN, namun saat mencapai ujung, head langsung melompat kembali ke ujung awal tanpa melayani permintaan di perjalanan kembali.",
+      "Mirip dengan SCAN, namun saat mencapai ujung track tertinggi, head langsung melompat kembali ke track 0 tanpa melayani permintaan di perjalanan kembali.",
     characteristic:
       "Karakteristik: Lompatan ujung ke ujung dihitung sebagai gerakan head. Memberikan waktu respon yang paling seragam.",
   },
@@ -113,12 +113,7 @@ export function calculateSSTF(initialHead, queue) {
 /**
  * 3. SCAN (Elevator Algorithm)
  */
-export function calculateSCAN(
-  initialHead,
-  queue,
-  totalTrack,
-  direction = "right",
-) {
+export function calculateSCAN(initialHead, queue, totalTrack) {
   const maxTrack = totalTrack - 1;
   const sequence = [initialHead];
   let thm = 0;
@@ -130,50 +125,26 @@ export function calculateSCAN(
 
   same.forEach((t) => sequence.push(t));
 
-  if (direction === "right") {
-    const firstPass = traverseTracks(initialHead, right, sequence, seekSteps);
-    let current = firstPass.lastHead;
-    thm += firstPass.addedThm;
+  const firstPass = traverseTracks(initialHead, right, sequence, seekSteps);
+  let current = firstPass.lastHead;
+  thm += firstPass.addedThm;
 
-    if (left.length > 0) {
-      if (current < maxTrack) {
-        const dist = Math.abs(maxTrack - current);
-        thm += dist;
-        seekSteps.push({
-          from: current,
-          to: maxTrack,
-          distance: dist,
-          isBoundary: true,
-        });
-        sequence.push(maxTrack);
-        current = maxTrack;
-      }
-
-      const secondPass = traverseTracks(current, left, sequence, seekSteps);
-      thm += secondPass.addedThm;
+  if (left.length > 0) {
+    if (current < maxTrack) {
+      const dist = Math.abs(maxTrack - current);
+      thm += dist;
+      seekSteps.push({
+        from: current,
+        to: maxTrack,
+        distance: dist,
+        isBoundary: true,
+      });
+      sequence.push(maxTrack);
+      current = maxTrack;
     }
-  } else {
-    const firstPass = traverseTracks(initialHead, left, sequence, seekSteps);
-    let current = firstPass.lastHead;
-    thm += firstPass.addedThm;
 
-    if (right.length > 0) {
-      if (current > 0) {
-        const dist = Math.abs(0 - current);
-        thm += dist;
-        seekSteps.push({
-          from: current,
-          to: 0,
-          distance: dist,
-          isBoundary: true,
-        });
-        sequence.push(0);
-        current = 0;
-      }
-
-      const secondPass = traverseTracks(current, right, sequence, seekSteps);
-      thm += secondPass.addedThm;
-    }
+    const secondPass = traverseTracks(current, left, sequence, seekSteps);
+    thm += secondPass.addedThm;
   }
 
   return {
@@ -188,12 +159,7 @@ export function calculateSCAN(
 /**
  * 4. C-SCAN (Circular SCAN)
  */
-export function calculateCSCAN(
-  initialHead,
-  queue,
-  totalTrack,
-  direction = "right",
-) {
+export function calculateCSCAN(initialHead, queue, totalTrack) {
   const maxTrack = totalTrack - 1;
   const sequence = [initialHead];
   let thm = 0;
@@ -205,81 +171,35 @@ export function calculateCSCAN(
 
   same.forEach((t) => sequence.push(t));
 
-  if (direction === "right") {
-    const firstPass = traverseTracks(initialHead, right, sequence, seekSteps);
-    let current = firstPass.lastHead;
-    thm += firstPass.addedThm;
+  const firstPass = traverseTracks(initialHead, right, sequence, seekSteps);
+  let current = firstPass.lastHead;
+  thm += firstPass.addedThm;
 
-    if (left.length > 0) {
-      if (current < maxTrack) {
-        const dist = Math.abs(maxTrack - current);
-        thm += dist;
-        seekSteps.push({
-          from: current,
-          to: maxTrack,
-          distance: dist,
-          isBoundary: true,
-        });
-        sequence.push(maxTrack);
-      }
-
-      const jumpDistance = Math.abs(0 - maxTrack);
-      thm += jumpDistance;
+  if (left.length > 0) {
+    if (current < maxTrack) {
+      const dist = Math.abs(maxTrack - current);
+      thm += dist;
       seekSteps.push({
-        from: maxTrack,
-        to: 0,
-        distance: jumpDistance,
-        isJump: true,
-      });
-      sequence.push(0);
-
-      const secondPass = traverseTracks(0, left, sequence, seekSteps);
-      thm += secondPass.addedThm;
-    }
-  } else {
-    const leftDesc = [...left].sort((a, b) => b - a);
-    const rightDesc = [...right].sort((a, b) => b - a);
-
-    const firstPass = traverseTracks(
-      initialHead,
-      leftDesc,
-      sequence,
-      seekSteps,
-    );
-    let current = firstPass.lastHead;
-    thm += firstPass.addedThm;
-
-    if (rightDesc.length > 0) {
-      if (current > 0) {
-        const dist = Math.abs(0 - current);
-        thm += dist;
-        seekSteps.push({
-          from: current,
-          to: 0,
-          distance: dist,
-          isBoundary: true,
-        });
-        sequence.push(0);
-      }
-
-      const jumpDistance = Math.abs(maxTrack - 0);
-      thm += jumpDistance;
-      seekSteps.push({
-        from: 0,
+        from: current,
         to: maxTrack,
-        distance: jumpDistance,
-        isJump: true,
+        distance: dist,
+        isBoundary: true,
       });
       sequence.push(maxTrack);
-
-      const secondPass = traverseTracks(
-        maxTrack,
-        rightDesc,
-        sequence,
-        seekSteps,
-      );
-      thm += secondPass.addedThm;
     }
+
+    const jumpDistance = Math.abs(0 - maxTrack);
+    thm += jumpDistance;
+    seekSteps.push({
+      from: maxTrack,
+      to: 0,
+      distance: jumpDistance,
+      isJump: true,
+    });
+    sequence.push(0);
+
+    const secondPass = traverseTracks(0, left, sequence, seekSteps);
+    thm += secondPass.addedThm;
   }
 
   return {
@@ -294,16 +214,11 @@ export function calculateCSCAN(
 /**
  * Menghitung semua algoritma sekaligus & menentukan algoritma paling efisien
  */
-export function compareAllAlgorithms(
-  initialHead,
-  queue,
-  totalTrack,
-  direction = "right",
-) {
+export function compareAllAlgorithms(initialHead, queue, totalTrack) {
   const fcfs = calculateFCFS(initialHead, queue);
   const sstf = calculateSSTF(initialHead, queue);
-  const scan = calculateSCAN(initialHead, queue, totalTrack, direction);
-  const cscan = calculateCSCAN(initialHead, queue, totalTrack, direction);
+  const scan = calculateSCAN(initialHead, queue, totalTrack);
+  const cscan = calculateCSCAN(initialHead, queue, totalTrack);
 
   const list = [fcfs, sstf, scan, cscan];
   let best = list[0];
